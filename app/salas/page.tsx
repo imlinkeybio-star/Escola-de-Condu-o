@@ -9,6 +9,7 @@ import {
   Radio,
   Search,
   Sparkles,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
@@ -28,12 +29,16 @@ import {
   DifficultyLevel,
   QUESTION_CATEGORIES,
 } from '@/lib/types';
-import { createCompetitionRoom, findRoomByCode } from '@/lib/firestore-service';
+import {
+  createCompetitionRoom,
+  deleteCompetitionRoom,
+  findRoomByCode,
+} from '@/lib/firestore-service';
 
 function SalasContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, profile } = useAuth();
+  const { user, profile, isAdmin, isOwner } = useAuth();
 
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'finished'>('all');
@@ -42,6 +47,9 @@ function SalasContent() {
     searchParams.get('criar') === '1'
   );
   const [creating, setCreating] = useState(false);
+  const [confirmDeleteRoom, setConfirmDeleteRoom] =
+    useState<CompetitionRoom | null>(null);
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   // Create form state
@@ -113,6 +121,24 @@ function SalasContent() {
       return;
     }
     router.push(`/sala/${found.roomId}`);
+  };
+
+  const handleConfirmDeleteRoom = async () => {
+    if (!confirmDeleteRoom) return;
+    setError('');
+    setDeletingRoomId(confirmDeleteRoom.roomId);
+    try {
+      await deleteCompetitionRoom(confirmDeleteRoom.roomId, isAdmin || isOwner);
+      setConfirmDeleteRoom(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível eliminar a sala.'
+      );
+    } finally {
+      setDeletingRoomId(null);
+    }
   };
 
   const isRoomFinished = (r: CompetitionRoom) =>
@@ -247,15 +273,28 @@ function SalasContent() {
                         {r.totalQuestions} perguntas · {r.timePerQuestion}s
                       </span>
                     </div>
-                    <Link
-                      href={`/sala/${r.roomId}`}
-                      className="w-full min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current shrink-0" />
-                      <span className="truncate">
-                        {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
-                      </span>
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/sala/${r.roomId}`}
+                        className="flex-1 min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors min-w-0"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                        <span className="truncate">
+                          {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
+                        </span>
+                      </Link>
+                      {(r.hostId === user?.uid || isAdmin || isOwner) && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteRoom(r)}
+                          aria-label={`Eliminar sala ${r.title}`}
+                          title="Eliminar sala"
+                          className="min-w-[42px] min-h-[42px] px-3 rounded-xl bg-red-600/15 hover:bg-red-600/30 border border-red-500/30 text-red-300 flex items-center justify-center cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -411,6 +450,56 @@ function SalasContent() {
                     : 'Criar Sala (Perguntas IA em Tempo Real)'}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Room Confirmation Modal */}
+        {confirmDeleteRoom && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111520] border border-red-500/30 rounded-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">
+                    Eliminar Sala
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteRoom(null)}
+                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
+                Tens a certeza que queres eliminar a sala{' '}
+                <strong className="text-white">{confirmDeleteRoom.title}</strong>{' '}
+                ({confirmDeleteRoom.code})? Esta ação remove a sala da lista ao
+                vivo e não pode ser revertida.
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteRoom(null)}
+                  disabled={Boolean(deletingRoomId)}
+                  className="min-h-[42px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteRoom}
+                  disabled={Boolean(deletingRoomId)}
+                  className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {deletingRoomId ? 'A eliminar...' : 'Confirmar Eliminação'}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -15,7 +15,9 @@ function LoginFormContent() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [resetMode, setResetMode] = useState(false);
+  const [resetMode, setResetMode] = useState(
+    searchParams.get('reset') === '1'
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');

@@ -61,6 +61,8 @@ export interface UserPrivateInfo {
   province?: string;
   voiceEnabled: boolean;
   notificationsEnabled: boolean;
+  totpEnabled?: boolean;
+  totpSealedSecret?: string;
   updatedAt: unknown;
 }
 

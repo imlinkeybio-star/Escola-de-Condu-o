@@ -5,17 +5,23 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Award,
+  Camera,
   Check,
   Edit3,
   Flame,
   Settings,
+  ShieldCheck,
   Star,
+  Trash2,
   Trophy,
+  Upload,
 } from 'lucide-react';
+import { updateProfile } from 'firebase/auth';
 import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
+import { AccountSecurityCard } from '@/components/AccountSecurityCard';
 import {
   LiveAnswerBreakdownBar,
   LiveTrendSvgChart,
@@ -40,13 +46,75 @@ function toMillis(ts: unknown): number {
   return 0;
 }
 
+async function compressAvatarFile(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Seleciona um ficheiro de imagem válido (JPG, PNG ou WebP).');
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error('A imagem original não pode exceder 8 MB.');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new window.Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
+      el.src = objectUrl;
+    });
+
+    const targetSize = 160;
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Navegador sem suporte a processamento de imagem.');
+
+    // Center-crop square
+    const minSide = Math.min(img.width, img.height);
+    const sx = Math.max(0, Math.floor((img.width - minSide) / 2));
+    const sy = Math.max(0, Math.floor((img.height - minSide) / 2));
+    ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, targetSize, targetSize);
+
+    let dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+    if (dataUrl.length > 75000) {
+      dataUrl = canvas.toDataURL('image/jpeg', 0.62);
+    }
+    if (dataUrl.length > 78000) {
+      throw new Error('Imagem demasiado detalhada. Tenta uma foto mais simples.');
+    }
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+const PRESET_AVATARS = [
+  { label: 'Logo Oficial', value: '/assets/aistudio/favicon_14076ff5.png' },
+  {
+    label: 'Condutor Estrada',
+    value: 'https://picsum.photos/seed/condutor-angola/200/200',
+  },
+  {
+    label: 'Luanda Noite',
+    value: 'https://picsum.photos/seed/luanda-drive/200/200',
+  },
+];
+
 export default function PerfilPage() {
   const { user, profile, privateInfo, refreshProfile } = useAuth();
-  const [tab, setTab] = useState<'desempenho' | 'conquistas'>('desempenho');
+  const [tab, setTab] = useState<'desempenho' | 'conquistas' | 'seguranca'>(
+    'desempenho'
+  );
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [drivingSchool, setDrivingSchool] = useState('');
   const [province, setProvince] = useState('Luanda');
+  const [photoDraft, setPhotoDraft] = useState<string>('');
+  const [photoTouched, setPhotoTouched] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
   const [saving, setSaving] = useState(false);
   const [achievements, setAchievements] = useState<AchievementRecord[]>([]);
   const [results, setResults] = useState<UserResult[]>([]);
@@ -86,18 +154,82 @@ export default function PerfilPage() {
     };
   }, [user]);
 
+  const openEditor = () => {
+    if (!profile) return;
+    setDisplayName(profile.displayName);
+    setDrivingSchool(privateInfo?.drivingSchool || '');
+    setProvince(privateInfo?.province || 'Luanda');
+    setPhotoDraft(profile.photoURL || '');
+    setPhotoTouched(false);
+    setEditError('');
+    setEditSuccess('');
+    setEditing((p) => !p);
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setEditError('');
+    setPhotoBusy(true);
+    try {
+      const compressed = await compressAvatarFile(file);
+      setPhotoDraft(compressed);
+      setPhotoTouched(true);
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : 'Erro ao carregar foto.'
+      );
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    setEditError('');
+    setEditSuccess('');
     setSaving(true);
     try {
       await updateUserProfileDetails(user.uid, {
         displayName,
         drivingSchool,
         province,
+        ...(photoTouched
+          ? { photoURL: photoDraft.trim() ? photoDraft.trim() : null }
+          : {}),
       });
+
+      // Keep Firebase Auth profile aligned when name changes or photo is a short HTTP URL
+      try {
+        const authUpdates: { displayName?: string; photoURL?: string | null } = {
+          displayName: displayName.trim().slice(0, 60),
+        };
+        if (photoTouched) {
+          if (!photoDraft.trim()) {
+            authUpdates.photoURL = null;
+          } else if (
+            /^https?:\/\//i.test(photoDraft.trim()) &&
+            photoDraft.trim().length <= 1500
+          ) {
+            authUpdates.photoURL = photoDraft.trim();
+          }
+        }
+        await updateProfile(user, authUpdates);
+      } catch {
+        // Non-blocking Firebase Auth metadata sync
+      }
+
       await refreshProfile();
       setEditing(false);
+      setEditSuccess('Perfil e foto atualizados com sucesso!');
+    } catch (err) {
+      setEditError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível guardar as alterações.'
+      );
     } finally {
       setSaving(false);
     }
@@ -133,6 +265,10 @@ export default function PerfilPage() {
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (accuracy / 100) * circumference;
 
+  const displayedPhoto = editing
+    ? photoDraft || defaultAvatarImg
+    : profile.photoURL || defaultAvatarImg;
+
   return (
     <AppShell title="Meu Perfil">
       <div className="max-w-4xl mx-auto space-y-6 min-w-0">
@@ -147,9 +283,9 @@ export default function PerfilPage() {
           </Link>
 
           <div className="relative w-24 h-24 mx-auto">
-            <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-amber-400/60">
+            <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-amber-400/60 bg-[#090C14]">
               <Image
-                src={profile.photoURL || defaultAvatarImg}
+                src={displayedPhoto}
                 alt={profile.displayName}
                 fill
                 sizes="96px"
@@ -158,16 +294,12 @@ export default function PerfilPage() {
               />
             </div>
             <button
-              onClick={() => {
-                setDisplayName(profile.displayName);
-                setDrivingSchool(privateInfo?.drivingSchool || '');
-                setProvince(privateInfo?.province || 'Luanda');
-                setEditing((p) => !p);
-              }}
-              aria-label="Editar perfil"
+              type="button"
+              onClick={openEditor}
+              aria-label="Editar perfil e foto"
               className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center border-2 border-[#111520] cursor-pointer"
             >
-              <Edit3 className="w-3.5 h-3.5" />
+              <Camera className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -183,7 +315,23 @@ export default function PerfilPage() {
                 {privateInfo.drivingSchool}
               </p>
             )}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={openEditor}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                {editing ? 'Fechar Edição' : 'Editar Foto & Dados'}
+              </button>
+            </div>
           </div>
+
+          {editSuccess && !editing && (
+            <div className="max-w-md mx-auto p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200">
+              {editSuccess}
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-2.5 sm:gap-3 max-w-md mx-auto pt-2">
             <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
@@ -212,8 +360,88 @@ export default function PerfilPage() {
           {editing && (
             <form
               onSubmit={handleSave}
-              className="max-w-md mx-auto pt-4 border-t border-white/[0.08] space-y-3 text-left"
+              className="max-w-md mx-auto pt-4 border-t border-white/[0.08] space-y-4 text-left"
             >
+              {editError && (
+                <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
+                  {editError}
+                </div>
+              )}
+
+              {/* Avatar Editor */}
+              <div className="p-3.5 rounded-xl bg-[#090C14] border border-white/10 space-y-3">
+                <p className="text-xs font-bold text-white">
+                  Foto de Perfil (Picture)
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="min-h-[38px] px-3.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white inline-flex items-center gap-2 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5 text-amber-400" />
+                    {photoBusy ? 'A processar...' : 'Carregar do Dispositivo'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {photoDraft && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhotoDraft('');
+                        setPhotoTouched(true);
+                      }}
+                      className="min-h-[38px] px-3 rounded-xl bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-200 inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Remover Foto
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_AVATARS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => {
+                        setPhotoDraft(preset.value);
+                        setPhotoTouched(true);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border cursor-pointer ${
+                        photoDraft === preset.value
+                          ? 'bg-red-600/25 border-red-500 text-white'
+                          : 'bg-[#111520] border-white/10 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400">
+                    Ou link de imagem (https://...)
+                  </label>
+                  <input
+                    type="text"
+                    value={photoDraft.startsWith('data:') ? '' : photoDraft}
+                    onChange={(e) => {
+                      setPhotoDraft(e.target.value);
+                      setPhotoTouched(true);
+                    }}
+                    placeholder={
+                      photoDraft.startsWith('data:')
+                        ? 'Foto carregada do dispositivo pronta a guardar'
+                        : 'https://lh3.googleusercontent.com/...'
+                    }
+                    className="w-full min-h-[38px] px-3 rounded-xl bg-[#111520] border border-white/15 text-xs text-white mt-1"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs text-slate-400">Nome</label>
                 <input
@@ -256,8 +484,8 @@ export default function PerfilPage() {
               </div>
               <button
                 type="submit"
-                disabled={saving}
-                className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
+                disabled={saving || photoBusy}
+                className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 {saving ? 'A guardar...' : 'Guardar Alterações'}
@@ -267,26 +495,37 @@ export default function PerfilPage() {
         </div>
 
         {/* Profile Tabs */}
-        <div className="grid grid-cols-2 gap-2 p-1 bg-[#111520] border border-white/[0.08] rounded-xl">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 p-1 bg-[#111520] border border-white/[0.08] rounded-xl">
           <button
             onClick={() => setTab('desempenho')}
-            className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+            className={`py-2.5 px-2 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer truncate ${
               tab === 'desempenho'
                 ? 'bg-red-600 text-white'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Meu Desempenho
+            Desempenho
           </button>
           <button
             onClick={() => setTab('conquistas')}
-            className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+            className={`py-2.5 px-2 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer truncate ${
               tab === 'conquistas'
                 ? 'bg-red-600 text-white'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             Conquistas ({achievements.length})
+          </button>
+          <button
+            onClick={() => setTab('seguranca')}
+            className={`py-2.5 px-2 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 truncate ${
+              tab === 'seguranca'
+                ? 'bg-red-600 text-white'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+            <span>Segurança</span>
           </button>
         </div>
 
@@ -364,7 +603,7 @@ export default function PerfilPage() {
               <LiveTrendSvgChart results={results} height={170} />
             </div>
           </div>
-        ) : (
+        ) : tab === 'conquistas' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {ACHIEVEMENTS_CATALOG.map((ach) => {
               const unlocked = unlockedSet.has(ach.id);
@@ -396,6 +635,8 @@ export default function PerfilPage() {
               );
             })}
           </div>
+        ) : (
+          <AccountSecurityCard />
         )}
       </div>
     </AppShell>

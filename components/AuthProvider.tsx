@@ -29,6 +29,10 @@ interface AuthContextValue {
   isOwner: boolean;
   loading: boolean;
   authReady: boolean;
+  totpVerified: boolean;
+  totpChecking: boolean;
+  totpRequired: boolean;
+  markTotpVerified: (verified: boolean) => void;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   registerWithEmail: (params: {
@@ -52,6 +56,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
+  const [verifiedTotpUid, setVerifiedTotpUid] = useState<string | null>(null);
+  const [checkedTotpUid, setCheckedTotpUid] = useState<string | null>(null);
 
   const loadUserContext = useCallback(async (firebaseUser: User) => {
     const [{ profile: prof, privateInfo: priv }, adminStatus] = await Promise.all([
@@ -77,6 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         setPrivateInfo(null);
         setIsAdmin(false);
+        setVerifiedTotpUid(null);
+        setCheckedTotpUid(null);
       }
       setLoading(false);
       setAuthReady(true);
@@ -114,6 +122,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubPrivate();
     };
   }, [user]);
+
+  const totpEnabled = Boolean(
+    user && privateInfo?.totpEnabled && privateInfo?.totpSealedSecret
+  );
+
+  // Check server HttpOnly 2FA session cookie when account has Google Authenticator enabled
+  useEffect(() => {
+    if (!user || !totpEnabled) return;
+    let cancelled = false;
+    const uid = user.uid;
+    (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch('/api/auth/totp/status', {
+          headers: { Authorization: `Bearer ${idToken}` },
+          cache: 'no-store',
+        });
+        const data = (await res.json()) as { verified?: boolean };
+        if (!cancelled) {
+          setVerifiedTotpUid(data.verified ? uid : null);
+          setCheckedTotpUid(uid);
+        }
+      } catch {
+        if (!cancelled) {
+          setVerifiedTotpUid(null);
+          setCheckedTotpUid(uid);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, totpEnabled]);
+
+  const markTotpVerified = useCallback((verified: boolean) => {
+    const uid = auth.currentUser?.uid || null;
+    setVerifiedTotpUid(verified ? uid : null);
+    if (uid) {
+      setCheckedTotpUid(uid);
+    }
+  }, []);
 
   const signInWithGoogle = useCallback(async () => {
     const cred = await signInWithPopup(auth, googleProvider);
@@ -170,11 +219,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    await fetch('/api/auth/totp/status', { method: 'DELETE' }).catch(() => {});
     await signOut(auth);
     setUser(null);
     setProfile(null);
     setPrivateInfo(null);
     setIsAdmin(false);
+    setVerifiedTotpUid(null);
+    setCheckedTotpUid(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -187,6 +239,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user && isAppOwnerEmail(user.email) && user.emailVerified
   );
 
+  const totpVerified = !totpEnabled || verifiedTotpUid === user?.uid;
+  const totpChecking =
+    totpEnabled && checkedTotpUid !== user?.uid && verifiedTotpUid !== user?.uid;
+  const totpRequired = totpEnabled && !totpVerified;
+
   return (
     <AuthContext.Provider
       value={{
@@ -197,6 +254,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isOwner,
         loading,
         authReady,
+        totpVerified,
+        totpChecking,
+        totpRequired,
+        markTotpVerified,
         signInWithGoogle,
         signInWithEmail,
         registerWithEmail,

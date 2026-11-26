@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -36,6 +37,7 @@ import {
   APP_OWNER_EMAIL,
   APP_OWNER_USERNAME,
   isAppOwnerEmail,
+  sanitizeAvatarPhotoUrl,
   sanitizeSafeUrl,
 } from './url-safety';
 
@@ -108,8 +110,9 @@ export async function ensureUserProfile(
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    if (user.photoURL) {
-      newProfile.photoURL = user.photoURL.slice(0, 500);
+    const safeInitialPhoto = sanitizeAvatarPhotoUrl(user.photoURL);
+    if (safeInitialPhoto) {
+      newProfile.photoURL = safeInitialPhoto;
     }
 
     try {
@@ -172,35 +175,86 @@ export async function updateUserProfileDetails(
   uid: string,
   updates: {
     displayName?: string;
-    photoURL?: string;
+    photoURL?: string | null;
     drivingSchool?: string;
     province?: string;
     voiceEnabled?: boolean;
     notificationsEnabled?: boolean;
+    totpEnabled?: boolean;
+    totpSealedSecret?: string | null;
   }
 ): Promise<void> {
-  if (updates.displayName !== undefined || updates.photoURL !== undefined) {
+  const cleanName =
+    updates.displayName !== undefined
+      ? updates.displayName.trim().slice(0, 60)
+      : undefined;
+
+  let resolvedPhoto: string | null | undefined = undefined;
+  if (updates.photoURL === null || updates.photoURL === '') {
+    resolvedPhoto = null;
+  } else if (updates.photoURL !== undefined) {
+    const safe = sanitizeAvatarPhotoUrl(updates.photoURL);
+    if (!safe) {
+      throw new Error(
+        'Formato de imagem inválido ou ficheiro demasiado grande (usa JPG, PNG ou URL https://).'
+      );
+    }
+    resolvedPhoto = safe;
+  }
+
+  if (cleanName !== undefined || resolvedPhoto !== undefined) {
     const payload: Record<string, unknown> = {
       updatedAt: serverTimestamp(),
     };
-    if (updates.displayName !== undefined) {
-      payload.displayName = updates.displayName.trim().slice(0, 60);
+    if (cleanName !== undefined) {
+      if (cleanName.length < 2) {
+        throw new Error('O nome deve ter pelo menos 2 caracteres.');
+      }
+      payload.displayName = cleanName;
     }
-    if (updates.photoURL !== undefined) {
-      payload.photoURL = updates.photoURL.trim().slice(0, 500);
+    if (resolvedPhoto === null) {
+      payload.photoURL = deleteField();
+    } else if (resolvedPhoto !== undefined) {
+      payload.photoURL = resolvedPhoto;
     }
+
     try {
       await updateDoc(doc(db, 'users', uid), payload);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
     }
+
+    // Best-effort sync of displayName / photoURL on public ranking entries
+    const syncRankingDoc = async (ref: ReturnType<typeof doc>) => {
+      try {
+        const snap = await getDoc(ref);
+        if (!snap.exists()) return;
+        const rankingUpdate: Record<string, unknown> = {
+          updatedAt: serverTimestamp(),
+        };
+        if (cleanName !== undefined) rankingUpdate.displayName = cleanName;
+        if (resolvedPhoto === null) rankingUpdate.photoURL = deleteField();
+        else if (resolvedPhoto !== undefined) rankingUpdate.photoURL = resolvedPhoto;
+        await updateDoc(ref, rankingUpdate);
+      } catch {
+        // Non-blocking sync
+      }
+    };
+
+    const weekKey = getCurrentWeekKey();
+    await Promise.all([
+      syncRankingDoc(doc(db, 'global_rankings', uid)),
+      syncRankingDoc(doc(db, 'weekly_rankings', `${weekKey}_${uid}`)),
+    ]);
   }
 
   if (
     updates.drivingSchool !== undefined ||
     updates.province !== undefined ||
     updates.voiceEnabled !== undefined ||
-    updates.notificationsEnabled !== undefined
+    updates.notificationsEnabled !== undefined ||
+    updates.totpEnabled !== undefined ||
+    updates.totpSealedSecret !== undefined
   ) {
     const privPayload: Record<string, unknown> = {
       updatedAt: serverTimestamp(),
@@ -216,6 +270,14 @@ export async function updateUserProfileDetails(
     }
     if (updates.notificationsEnabled !== undefined) {
       privPayload.notificationsEnabled = updates.notificationsEnabled;
+    }
+    if (updates.totpEnabled !== undefined) {
+      privPayload.totpEnabled = updates.totpEnabled;
+    }
+    if (updates.totpSealedSecret === null || updates.totpSealedSecret === '') {
+      privPayload.totpSealedSecret = deleteField();
+    } else if (updates.totpSealedSecret !== undefined) {
+      privPayload.totpSealedSecret = updates.totpSealedSecret.slice(0, 1000);
     }
     try {
       await updateDoc(doc(db, 'users', uid, 'private', 'info'), privPayload);
@@ -287,6 +349,48 @@ export async function createCompetitionRoom(params: {
 
   const snap = await getDoc(doc(db, 'rooms', roomId));
   return snap.data() as CompetitionRoom;
+}
+
+export async function deleteCompetitionRoom(
+  roomId: string,
+  isAdminUser = false
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Inicia sessão para eliminar uma sala.');
+
+  const cleanRoomId = sanitizeId(roomId);
+  const roomRef = doc(db, 'rooms', cleanRoomId);
+  const roomSnap = await getDoc(roomRef);
+  if (!roomSnap.exists()) {
+    throw new Error('Esta sala já foi eliminada ou não existe.');
+  }
+  const room = roomSnap.data() as CompetitionRoom;
+  const ownerOverride = isAppOwnerEmail(currentUser.email) && currentUser.emailVerified;
+  if (room.hostId !== currentUser.uid && !isAdminUser && !ownerOverride) {
+    throw new Error('Apenas o criador da sala ou um administrador pode eliminá-la.');
+  }
+
+  // Best-effort cleanup of own participant entry before deleting room
+  try {
+    await deleteDoc(doc(db, 'rooms', cleanRoomId, 'participants', currentUser.uid));
+  } catch {
+    // Non-blocking
+  }
+
+  try {
+    await deleteDoc(roomRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `rooms/${cleanRoomId}`);
+  }
+
+  if (isAdminUser || ownerOverride) {
+    await logAdminAudit({
+      action: 'DELETE_ROOM',
+      targetType: 'room',
+      targetId: cleanRoomId,
+      details: `Sala "${room.title}" (${room.code}) eliminada.`,
+    });
+  }
 }
 
 export async function findRoomByCode(rawCode: string): Promise<CompetitionRoom | null> {
@@ -362,8 +466,9 @@ export async function joinCompetitionRoom(
         joinedAt: serverTimestamp(),
         lastActiveAt: serverTimestamp(),
       };
-      if (profile.photoURL) {
-        newPart.photoURL = profile.photoURL.slice(0, 500);
+      const safeJoinedPhoto = sanitizeAvatarPhotoUrl(profile.photoURL);
+      if (safeJoinedPhoto) {
+        newPart.photoURL = safeJoinedPhoto;
       }
 
       tx.set(participantRef, newPart);

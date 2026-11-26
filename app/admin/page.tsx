@@ -9,7 +9,9 @@ import {
   ClipboardList,
   PlusCircle,
   Shield,
+  Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import {
   collection,
@@ -33,6 +35,7 @@ import {
 import {
   createCompetitionRoom,
   createQuestionBankEntry,
+  deleteCompetitionRoom,
   toggleUserDisabledStatus,
 } from '@/lib/firestore-service';
 import { SIGN_LABELS } from '@/components/TrafficSignDisplay';
@@ -62,6 +65,9 @@ export default function AdminPage() {
   const [legalRef, setLegalRef] = useState('Código de Estrada de Angola');
   const [signType, setSignType] = useState('none');
   const [statusMsg, setStatusMsg] = useState('');
+  const [confirmDeleteRoom, setConfirmDeleteRoom] =
+    useState<CompetitionRoom | null>(null);
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || !isAdmin) return;
@@ -169,6 +175,23 @@ export default function AdminPage() {
       setStatusMsg('Pergunta adicionada ao banco oficial e registada na auditoria.');
     } catch (err) {
       setStatusMsg(err instanceof Error ? err.message : 'Erro ao guardar pergunta.');
+    }
+  };
+
+  const handleConfirmDeleteRoom = async () => {
+    if (!confirmDeleteRoom) return;
+    setDeletingRoomId(confirmDeleteRoom.roomId);
+    setStatusMsg('');
+    try {
+      await deleteCompetitionRoom(confirmDeleteRoom.roomId, true);
+      setStatusMsg(`Sala "${confirmDeleteRoom.title}" eliminada com sucesso.`);
+      setConfirmDeleteRoom(null);
+    } catch (err) {
+      setStatusMsg(
+        err instanceof Error ? err.message : 'Erro ao eliminar sala.'
+      );
+    } finally {
+      setDeletingRoomId(null);
     }
   };
 
@@ -310,7 +333,7 @@ export default function AdminPage() {
               {rooms.map((r) => (
                 <div
                   key={r.roomId}
-                  className="p-4 flex items-center justify-between gap-4"
+                  className="p-4 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-white truncate">
@@ -321,12 +344,23 @@ export default function AdminPage() {
                       {r.finishedCount ?? 0}/100 finalistas
                     </p>
                   </div>
-                  <Link
-                    href={`/sala/${r.roomId}`}
-                    className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold text-white shrink-0"
-                  >
-                    Abrir
-                  </Link>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      href={`/sala/${r.roomId}`}
+                      className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold text-white"
+                    >
+                      Abrir
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteRoom(r)}
+                      aria-label={`Eliminar sala ${r.title}`}
+                      className="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-300 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -523,6 +557,54 @@ export default function AdminPage() {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {confirmDeleteRoom && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111520] border border-red-500/30 rounded-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">
+                    Eliminar Sala
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteRoom(null)}
+                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
+                Confirmas a eliminação permanente da sala{' '}
+                <strong className="text-white">{confirmDeleteRoom.title}</strong>{' '}
+                ({confirmDeleteRoom.code})?
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteRoom(null)}
+                  disabled={Boolean(deletingRoomId)}
+                  className="min-h-[42px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteRoom}
+                  disabled={Boolean(deletingRoomId)}
+                  className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {deletingRoomId ? 'A eliminar...' : 'Confirmar Eliminação'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

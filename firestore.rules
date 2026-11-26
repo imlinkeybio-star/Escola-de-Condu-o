@@ -45,6 +45,15 @@ service cloud.firestore {
         && (url.matches('^https?://[^\\s]+$') || url.matches('^/[^/].*$'));
     }
 
+    function isValidAvatarUrl(url) {
+      return url is string && url.size() >= 1 && url.size() <= 80000
+        && (
+          url.matches('^https?://[^\\s]+$')
+          || url.matches('^/assets/[^\\s]+$')
+          || url.matches('^data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$')
+        );
+    }
+
     function isBootstrappedAdmin() {
       return isSignedIn()
         && request.auth.token.email == 'kordelmauvesp@gmail.com'
@@ -85,7 +94,7 @@ service cloud.firestore {
         ])
         && data.uid is string && data.uid == uid && isValidId(data.uid)
         && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
-        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && (!('photoURL' in data) || isValidAvatarUrl(data.photoURL))
         && data.totalPoints is int && data.totalPoints >= 0 && data.totalPoints <= 10000000
         && data.wins is int && data.wins >= 0 && data.wins <= 100000
         && data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 100000
@@ -101,13 +110,18 @@ service cloud.firestore {
 
     function isValidUserPrivateInfo(data, uid) {
       return data.keys().hasAll(['uid', 'email', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'email', 'drivingSchool', 'province', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'email', 'drivingSchool', 'province', 'voiceEnabled',
+          'notificationsEnabled', 'totpEnabled', 'totpSealedSecret', 'updatedAt'
+        ])
         && data.uid is string && data.uid == uid && isValidId(data.uid)
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
         && (!('drivingSchool' in data) || (data.drivingSchool is string && data.drivingSchool.size() <= 120))
         && (!('province' in data) || (data.province is string && data.province.size() <= 60))
         && data.voiceEnabled is bool
         && data.notificationsEnabled is bool
+        && (!('totpEnabled' in data) || data.totpEnabled is bool)
+        && (!('totpSealedSecret' in data) || (data.totpSealedSecret is string && data.totpSealedSecret.size() <= 1000))
         && data.updatedAt is timestamp;
     }
 
@@ -166,7 +180,7 @@ service cloud.firestore {
         && data.uid is string && data.uid == uid && isValidId(data.uid)
         && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
         && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
-        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && (!('photoURL' in data) || isValidAvatarUrl(data.photoURL))
         && data.score is int && data.score >= 0 && data.score <= 10000
         && data.correctCount is int && data.correctCount >= 0 && data.correctCount <= 100
         && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 100
@@ -311,7 +325,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'points', 'wins', 'gamesPlayed', 'accuracy', 'weekKey', 'updatedAt'])
         && data.uid is string && data.uid == request.auth.uid && isValidId(data.uid)
         && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
-        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && (!('photoURL' in data) || isValidAvatarUrl(data.photoURL))
         && data.points is int && data.points >= 0 && data.points <= 10000000
         && data.wins is int && data.wins >= 0 && data.wins <= 100000
         && data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 100000
@@ -486,7 +500,8 @@ service cloud.firestore {
           && incoming().uid == existing().uid
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly([
-            'email', 'drivingSchool', 'province', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'
+            'email', 'drivingSchool', 'province', 'voiceEnabled',
+            'notificationsEnabled', 'totpEnabled', 'totpSealedSecret', 'updatedAt'
           ]);
         allow delete: if false;
       }
@@ -550,7 +565,7 @@ service cloud.firestore {
             && incoming().diff(existing()).affectedKeys().hasOnly(['finishedCount', 'status', 'updatedAt'])
           )
         );
-      allow delete: if isSignedIn() && isValidId(roomId) && isAdmin();
+      allow delete: if isSignedIn() && isValidId(roomId) && (existing().hostId == request.auth.uid || isAdmin());
 
       match /participants/{uid} {
         allow get: if isSignedIn() && isValidId(roomId) && isValidId(uid);
@@ -754,6 +769,16 @@ service cloud.firestore {
           isAdmin()
           || (
             isOwner(uid)
+            && incoming().points == existing().points
+            && incoming().wins == existing().wins
+            && incoming().gamesPlayed == existing().gamesPlayed
+            && incoming().accuracy == existing().accuracy
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'updatedAt'
+            ])
+          )
+          || (
+            isOwner(uid)
             && incoming().points >= existing().points
             && incoming().points <= existing().points + 500
             && incoming().gamesPlayed == existing().gamesPlayed + 1
@@ -779,6 +804,16 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           isAdmin()
+          || (
+            existing().uid == request.auth.uid
+            && incoming().points == existing().points
+            && incoming().wins == existing().wins
+            && incoming().gamesPlayed == existing().gamesPlayed
+            && incoming().accuracy == existing().accuracy
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'updatedAt'
+            ])
+          )
           || (
             existing().uid == request.auth.uid
             && incoming().points >= existing().points

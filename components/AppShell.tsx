@@ -12,12 +12,14 @@ import {
   ExternalLink,
   History,
   Home,
+  KeyRound,
   LogOut,
   Megaphone,
   Menu,
   Radio,
   Settings,
   Shield,
+  ShieldCheck,
   Trophy,
   User,
   X,
@@ -62,11 +64,24 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, isAdmin, isOwner, logout } = useAuth();
+  const {
+    user,
+    profile,
+    privateInfo,
+    isAdmin,
+    isOwner,
+    totpChecking,
+    totpRequired,
+    markTotpVerified,
+    logout,
+  } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSubmitting, setOtpSubmitting] = useState(false);
+  const [otpError, setOtpError] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -167,6 +182,45 @@ export function AppShell({
   const handleLogout = async () => {
     await logout();
     router.push('/');
+  };
+
+  const handleVerifyOtpGate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !privateInfo?.totpSealedSecret) return;
+    setOtpError('');
+    setOtpSubmitting(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/auth/totp/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          mode: 'verify',
+          code: otpCode,
+          sealedSecret: privateInfo.totpSealedSecret,
+        }),
+      });
+      const data = (await res.json()) as {
+        verified?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !data.verified) {
+        throw new Error(data.error || 'Código OTP inválido.');
+      }
+      setOtpCode('');
+      markTotpVerified(true);
+    } catch (err) {
+      setOtpError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível validar o código OTP.'
+      );
+    } finally {
+      setOtpSubmitting(false);
+    }
   };
 
   return (
@@ -441,7 +495,9 @@ export function AppShell({
         </header>
 
         {/* Top-of-App Ad & Owner Notification Banner directly below Topbar (10s duration, 15min cooldown, X dismiss) */}
-        {user && <AdBroadcastBanner broadcasts={broadcasts} />}
+        {user && !totpRequired && !totpChecking && (
+          <AdBroadcastBanner broadcasts={broadcasts} />
+        )}
 
         {/* Page Viewport */}
         <main
@@ -449,7 +505,71 @@ export function AppShell({
             hideBottomNav ? 'pb-8' : 'pb-24 lg:pb-8'
           }`}
         >
-          {children}
+          {user && totpChecking ? (
+            <div className="max-w-md mx-auto bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-3 my-8">
+              <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto animate-pulse" />
+              <p className="text-sm font-semibold text-white">
+                A verificar sessão de segurança 2FA...
+              </p>
+            </div>
+          ) : user && totpRequired ? (
+            <div className="max-w-md mx-auto bg-[#111520] border border-emerald-500/30 rounded-2xl p-6 sm:p-8 space-y-5 my-6">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+                  <KeyRound className="w-6 h-6" />
+                </div>
+                <h2 className="text-xl font-bold text-white">
+                  Verificação Google Authenticator
+                </h2>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  A tua conta ({user.email}) está protegida com OTP. Insere o
+                  código de 6 dígitos da app Google Authenticator para
+                  continuar.
+                </p>
+              </div>
+
+              {otpError && (
+                <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
+                  {otpError}
+                </div>
+              )}
+
+              <form onSubmit={handleVerifyOtpGate} className="space-y-4">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  value={otpCode}
+                  onChange={(e) =>
+                    setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  placeholder="000000"
+                  className="w-full min-h-[50px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-xl font-mono-tabular tracking-[0.45em] text-center text-white focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  disabled={otpSubmitting || otpCode.length !== 6}
+                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold cursor-pointer"
+                >
+                  {otpSubmitting ? 'A verificar...' : 'Confirmar Código OTP'}
+                </button>
+              </form>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full min-h-[42px] rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                Terminar Sessão
+              </button>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
 

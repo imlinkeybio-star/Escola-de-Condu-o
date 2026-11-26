@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Bell, Check, HelpCircle, Volume2 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
+import { AccountSecurityCard } from '@/components/AccountSecurityCard';
 import { updateUserProfileDetails } from '@/lib/firestore-service';
 import { useVoiceExaminer } from '@/hooks/useVoiceExaminer';
 
@@ -109,6 +110,8 @@ export default function DefinicoesPage() {
             </button>
           </div>
         </div>
+
+        <AccountSecurityCard />
 
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 space-y-3">
           <div className="flex items-center gap-2 text-white font-bold">

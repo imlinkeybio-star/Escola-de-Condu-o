@@ -58,3 +58,28 @@ export function extractYouTubeEmbedUrl(raw?: string | null): string | null {
     return null;
   }
 }
+
+export function sanitizeAvatarPhotoUrl(raw?: string | null): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('/assets/') && !trimmed.startsWith('//') && trimmed.length <= 500) {
+    return trimmed;
+  }
+
+  if (/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
+    return trimmed.length <= 80000 ? trimmed : null;
+  }
+
+  if (trimmed.length > 500) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
