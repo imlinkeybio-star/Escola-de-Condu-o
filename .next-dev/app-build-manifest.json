@@ -16,35 +16,45 @@
       "static/chunks/main-app.js",
       "static/chunks/app/page.js"
     ],
-    "/salas/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/salas/page.js"
-    ],
     "/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/page.js"
     ],
-    "/ranking/page": [
+    "/salas/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/ranking/page.js"
+      "static/chunks/app/salas/page.js"
     ],
-    "/api/ai/generate-questions/route": [
+    "/estatisticas/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/ai/generate-questions/route.js"
+      "static/chunks/app/estatisticas/page.js"
     ],
-    "/api/competition/start-round/route": [
+    "/historico/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/competition/start-round/route.js"
+      "static/chunks/app/historico/page.js"
     ],
-    "/api/competition/reveal-answer/route": [
+    "/perfil/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/api/competition/reveal-answer/route.js"
+      "static/chunks/app/perfil/page.js"
+    ],
+    "/notificacoes/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/notificacoes/page.js"
+    ],
+    "/dono-anuncios/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/dono-anuncios/page.js"
+    ],
+    "/api/ai/generate-notification/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/ai/generate-notification/route.js"
     ]
   }
 }

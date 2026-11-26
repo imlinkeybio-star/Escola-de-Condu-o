@@ -206,12 +206,42 @@ export interface AchievementRecord {
   unlockedAt: unknown;
 }
 
+export type BroadcastKind =
+  | 'informative'
+  | 'link'
+  | 'ad_banner'
+  | 'ad_audio'
+  | 'ad_video';
+
+export interface BroadcastItem {
+  id: string;
+  kind: BroadcastKind;
+  title: string;
+  body: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  mediaUrl?: string;
+  aiGenerated: boolean;
+  active: boolean;
+  showInBanner: boolean;
+  durationSeconds: number;
+  cooldownMinutes: number;
+  createdByUid: string;
+  createdByEmail: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
 export interface NotificationItem {
   id?: string;
   uid: string;
   title: string;
   body: string;
   roomId?: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  kind?: BroadcastKind;
+  aiGenerated?: boolean;
   read: boolean;
   createdAt: unknown;
 }

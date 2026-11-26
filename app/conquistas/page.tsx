@@ -31,8 +31,8 @@ export default function ConquistasPage() {
   return (
     <AppShell title="Conquistas e Troféus">
       <div className="space-y-6">
-        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex items-center justify-between gap-4">
-          <div>
+        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4 min-w-0">
+          <div className="min-w-0">
             <h2 className="font-display text-2xl font-extrabold text-white">
               Galeria de Conquistas
             </h2>

@@ -38,7 +38,7 @@ import {
 import { SIGN_LABELS } from '@/components/TrafficSignDisplay';
 
 export default function AdminPage() {
-  const { user, profile, isAdmin, loading } = useAuth();
+  const { user, profile, isAdmin, isOwner, loading } = useAuth();
   const [tab, setTab] = useState<'salas' | 'utilizadores' | 'perguntas' | 'auditoria'>('salas');
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
@@ -209,8 +209,28 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* Owner Ads & AI Notifications Shortcut */}
+        {isOwner && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                Área Exclusiva do Dono da App
+              </p>
+              <p className="text-sm font-semibold text-white">
+                Gerir Notificações IA, Links e Anúncios (10s / 15min)
+              </p>
+            </div>
+            <Link
+              href="/dono-anuncios"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold text-center whitespace-nowrap shrink-0"
+            >
+              Abrir Painel de Anúncios
+            </Link>
+          </div>
+        )}
+
         {/* Admin Tabs */}
-        <div className="flex flex-wrap gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit">
+        <div className="flex flex-wrap gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
           {(
             [
               { id: 'salas', label: 'Competições & Salas' },

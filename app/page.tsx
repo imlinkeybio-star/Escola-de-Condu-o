@@ -60,7 +60,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07090F] text-slate-50 flex flex-col">
+    <div className="min-h-screen bg-[#07090F] text-slate-50 flex flex-col w-full max-w-full overflow-x-hidden">
       {/* Top Bar Contract (3 zones) */}
       <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#07090F]/85 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
@@ -208,19 +208,19 @@ export default function HomePage() {
                 <label className="block text-xs font-medium text-slate-300">
                   Tens um código de sala? Entra diretamente na competição:
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 min-w-0">
                   <input
                     type="text"
                     value={joinCode}
                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                     placeholder="Ex: ANG2026"
                     maxLength={12}
-                    className="flex-1 min-h-[46px] px-4 rounded-xl bg-[#0D111C]/90 border border-white/15 text-white font-mono-tabular uppercase placeholder:text-slate-500 focus:outline-none focus:border-red-500"
+                    className="flex-1 min-w-0 min-h-[46px] px-4 rounded-xl bg-[#0D111C]/90 border border-white/15 text-white font-mono-tabular uppercase placeholder:text-slate-500 focus:outline-none focus:border-red-500"
                   />
                   <button
                     type="submit"
                     disabled={joining}
-                    className="min-h-[46px] px-5 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-bold text-sm inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                    className="min-h-[46px] px-5 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-bold text-sm inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <span>{joining ? 'A entrar...' : 'Entrar'}</span>
                     <ArrowRight className="w-4 h-4" />

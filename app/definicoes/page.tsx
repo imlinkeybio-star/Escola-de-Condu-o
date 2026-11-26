@@ -37,10 +37,10 @@ export default function DefinicoesPage() {
             Preferências da Plataforma
           </h2>
 
-          <div className="flex items-center justify-between gap-4 py-3 border-b border-white/[0.06]">
-            <div className="flex items-center gap-3">
-              <Volume2 className="w-5 h-5 text-sky-400" />
-              <div>
+          <div className="flex items-center justify-between gap-4 py-3 border-b border-white/[0.06] min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <Volume2 className="w-5 h-5 text-sky-400 shrink-0" />
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-white">
                   Examinadora Virtual por Voz
                 </p>
@@ -52,7 +52,7 @@ export default function DefinicoesPage() {
             </div>
             <button
               onClick={() => setVoiceOverride(!voiceEnabled)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer shrink-0 whitespace-nowrap ${
                 voiceEnabled
                   ? 'bg-emerald-600 text-white'
                   : 'bg-white/10 text-slate-400'
@@ -62,10 +62,10 @@ export default function DefinicoesPage() {
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4 py-3 border-b border-white/[0.06]">
-            <div className="flex items-center gap-3">
-              <Bell className="w-5 h-5 text-amber-400" />
-              <div>
+          <div className="flex items-center justify-between gap-4 py-3 border-b border-white/[0.06] min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <Bell className="w-5 h-5 text-amber-400 shrink-0" />
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-white">
                   Notificações de Competições
                 </p>
@@ -76,7 +76,7 @@ export default function DefinicoesPage() {
             </div>
             <button
               onClick={() => setNotifOverride(!notificationsEnabled)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer shrink-0 whitespace-nowrap ${
                 notificationsEnabled
                   ? 'bg-emerald-600 text-white'
                   : 'bg-white/10 text-slate-400'
@@ -86,13 +86,13 @@ export default function DefinicoesPage() {
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 pt-2">
             <button
               onClick={handleSave}
               disabled={!user}
-              className="min-h-[44px] px-6 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center gap-2 cursor-pointer"
+              className="min-h-[44px] px-6 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Check className="w-4 h-4" />
+              <Check className="w-4 h-4 shrink-0" />
               {saved ? 'Preferências Guardadas!' : 'Guardar Preferências'}
             </button>
 
@@ -103,7 +103,7 @@ export default function DefinicoesPage() {
                   true
                 )
               }
-              className="min-h-[44px] px-5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer"
+              className="min-h-[44px] px-5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer text-center"
             >
               {isSpeaking ? 'A reproduzir áudio...' : 'Testar Voz Portuguesa'}
             </button>

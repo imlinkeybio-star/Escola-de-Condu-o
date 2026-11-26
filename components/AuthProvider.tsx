@@ -12,18 +12,21 @@ import {
   updateProfile,
   User,
 } from 'firebase/auth';
-import { auth, googleProvider, testFirestoreConnection } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, db, googleProvider, testFirestoreConnection } from '@/lib/firebase';
 import {
   checkIsAdmin,
   ensureUserProfile,
 } from '@/lib/firestore-service';
 import { UserPrivateInfo, UserProfile } from '@/lib/types';
+import { isAppOwnerEmail } from '@/lib/url-safety';
 
 interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   privateInfo: UserPrivateInfo | null;
   isAdmin: boolean;
+  isOwner: boolean;
   loading: boolean;
   authReady: boolean;
   signInWithGoogle: () => Promise<void>;
@@ -80,6 +83,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return () => unsub();
   }, [loadUserContext]);
+
+  // Real-time listeners for user profile & private preferences so Dashboard, Estatísticas, and Perfil update live
+  useEffect(() => {
+    if (!user) return;
+    const unsubProfile = onSnapshot(
+      doc(db, 'users', user.uid),
+      (snap) => {
+        if (snap.exists()) {
+          setProfile(snap.data() as UserProfile);
+        }
+      },
+      () => {
+        // Non-blocking fallback to loaded profile
+      }
+    );
+    const unsubPrivate = onSnapshot(
+      doc(db, 'users', user.uid, 'private', 'info'),
+      (snap) => {
+        if (snap.exists()) {
+          setPrivateInfo(snap.data() as UserPrivateInfo);
+        }
+      },
+      () => {
+        // Non-blocking fallback
+      }
+    );
+    return () => {
+      unsubProfile();
+      unsubPrivate();
+    };
+  }, [user]);
 
   const signInWithGoogle = useCallback(async () => {
     const cred = await signInWithPopup(auth, googleProvider);
@@ -149,6 +183,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadUserContext]);
 
+  const isOwner = Boolean(
+    user && isAppOwnerEmail(user.email) && user.emailVerified
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -156,6 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         privateInfo,
         isAdmin,
+        isOwner,
         loading,
         authReady,
         signInWithGoogle,

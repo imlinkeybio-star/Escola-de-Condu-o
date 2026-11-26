@@ -9,9 +9,11 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  ExternalLink,
   History,
   Home,
   LogOut,
+  Megaphone,
   Menu,
   Radio,
   Settings,
@@ -20,16 +22,37 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { collection, limit, onSnapshot, orderBy, query, updateDoc, doc, where } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  query,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
-import { NotificationItem } from '@/lib/types';
+import { BroadcastItem, NotificationItem } from '@/lib/types';
+import { AdBroadcastBanner } from './AdBroadcastBanner';
+import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 interface AppShellProps {
   children: React.ReactNode;
   title?: string;
   hideBottomNav?: boolean;
+}
+
+function getTimestampMillis(ts: unknown): number {
+  if (!ts) return 0;
+  if (typeof (ts as { toMillis?: () => number }).toMillis === 'function') {
+    return (ts as { toMillis: () => number }).toMillis();
+  }
+  if (typeof (ts as { seconds?: number }).seconds === 'number') {
+    return (ts as { seconds: number }).seconds * 1000;
+  }
+  return 0;
 }
 
 export function AppShell({
@@ -39,34 +62,65 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, isAdmin, logout } = useAuth();
+  const { user, profile, isAdmin, isOwner, logout } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
 
   useEffect(() => {
     if (!user) return;
+    // Query without orderBy to avoid composite-index delays; sort client-side
     const q = query(
       collection(db, 'notifications'),
       where('uid', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(10)
+      limit(20)
     );
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setNotifications(
-          snap.docs.map((d) => ({ id: d.id, ...(d.data() as NotificationItem) }))
-        );
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as NotificationItem) }))
+          .sort(
+            (a, b) =>
+              getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt)
+          );
+        setNotifications(list.slice(0, 15));
       },
       () => {
-        // Silent if index building or offline
+        // Non-blocking fallback
+      }
+    );
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'broadcasts'),
+      where('active', '==', true),
+      limit(25)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => ({ ...(d.data() as BroadcastItem), id: d.id }))
+          .sort(
+            (a, b) =>
+              getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt)
+          );
+        setBroadcasts(list);
+      },
+      () => {
+        // Non-blocking fallback
       }
     );
     return () => unsub();
   }, [user]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const totalAlertBadge = unreadCount + broadcasts.length;
 
   const markAllRead = async () => {
     const unread = notifications.filter((n) => !n.read && n.id);
@@ -83,11 +137,20 @@ export function AppShell({
     { href: '/ranking', label: 'Ranking', icon: Trophy },
     { href: '/estatisticas', label: 'Estatísticas', icon: BarChart3 },
     { href: '/historico', label: 'Histórico', icon: History },
+    { href: '/notificacoes', label: 'Notificações', icon: Bell },
     { href: '/conquistas', label: 'Conquistas', icon: Award },
     { href: '/regras', label: 'Regras de Trânsito', icon: BookOpen },
     { href: '/perfil', label: 'Meu Perfil', icon: User },
     { href: '/definicoes', label: 'Definições', icon: Settings },
   ];
+
+  if (isOwner) {
+    navItems.push({
+      href: '/dono-anuncios',
+      label: 'Anúncios & Notif. (Dono)',
+      icon: Megaphone,
+    });
+  }
 
   if (isAdmin) {
     navItems.push({ href: '/admin', label: 'Administração', icon: Shield });
@@ -107,8 +170,8 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-[#07090F] text-slate-100 flex">
-      {/* Desktop Sidebar (260px) */}
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#07090F] text-slate-100 flex">
+      {/* Desktop Sidebar */}
       <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#0D101A] border-r border-white/[0.08] z-30">
         <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.08]">
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
@@ -150,7 +213,7 @@ export function AppShell({
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </Link>
             );
           })}
@@ -176,7 +239,7 @@ export function AppShell({
                 <p className="text-sm font-semibold text-white truncate">
                   {profile?.displayName || user.displayName || 'Aluno'}
                 </p>
-                <p className="text-xs text-amber-400 font-mono-tabular">
+                <p className="text-xs text-amber-400 font-mono-tabular truncate">
                   {profile?.totalPoints ?? 0} pts · {profile?.tier || 'Aprendiz'}
                 </p>
               </div>
@@ -193,23 +256,23 @@ export function AppShell({
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0 max-w-full">
         {/* Top Bar (Compact 56px mobile, 64px desktop) */}
-        <header className="sticky top-0 z-20 h-14 lg:h-16 bg-[#07090F]/90 backdrop-blur-md border-b border-white/[0.08] px-4 lg:px-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="sticky top-0 z-20 h-14 lg:h-16 bg-[#07090F]/90 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               onClick={() => setDrawerOpen(true)}
               aria-label="Abrir menu"
-              className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/[0.06] cursor-pointer"
+              className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/[0.06] cursor-pointer shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h1 className="text-base lg:text-lg font-bold text-white truncate">
+            <h1 className="text-sm sm:text-base lg:text-lg font-bold text-white truncate">
               {title || 'Escola de Condução Live'}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {user ? (
               <>
                 <div className="relative">
@@ -219,49 +282,125 @@ export function AppShell({
                       if (!notifOpen && unreadCount > 0) void markAllRead();
                     }}
                     aria-label="Notificações"
-                    className="min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.06] relative cursor-pointer"
+                    className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.06] relative cursor-pointer"
                   >
                     <Bell className="w-5 h-5" />
-                    {unreadCount > 0 && (
-                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500" />
+                    {totalAlertBadge > 0 && (
+                      <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-[10px] font-bold text-white flex items-center justify-center tabular-nums">
+                        {totalAlertBadge > 9 ? '9+' : totalAlertBadge}
+                      </span>
                     )}
                   </button>
                   {notifOpen && (
-                    <div className="absolute right-0 mt-2 w-80 bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
-                      <div className="flex items-center justify-between px-1 pb-1 border-b border-white/[0.08]">
+                    <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.5rem))] bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
+                      <div className="flex items-center justify-between px-1 pb-1.5 border-b border-white/[0.08]">
                         <span className="text-xs font-semibold text-white">
-                          Notificações
+                          Notificações & Avisos
                         </span>
-                        <button
-                          onClick={() => setNotifOpen(false)}
-                          className="text-slate-400 hover:text-white p-1 cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href="/notificacoes"
+                            onClick={() => setNotifOpen(false)}
+                            className="text-[11px] font-semibold text-red-400 hover:text-red-300 whitespace-nowrap"
+                          >
+                            Ver todas
+                          </Link>
+                          <button
+                            onClick={() => setNotifOpen(false)}
+                            className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      {notifications.length === 0 ? (
+
+                      {broadcasts.length === 0 && notifications.length === 0 ? (
                         <p className="text-xs text-slate-400 py-4 text-center">
                           Sem notificações recentes.
                         </p>
                       ) : (
-                        <div className="max-h-64 overflow-y-auto space-y-1.5">
-                          {notifications.map((n) => (
-                            <div
-                              key={n.id}
-                              onClick={() => {
-                                setNotifOpen(false);
-                                if (n.roomId) router.push(`/sala/${n.roomId}`);
-                              }}
-                              className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] cursor-pointer"
-                            >
-                              <p className="text-xs font-semibold text-white">
-                                {n.title}
-                              </p>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {n.body}
-                              </p>
-                            </div>
-                          ))}
+                        <div className="max-h-72 overflow-y-auto space-y-1.5">
+                          {broadcasts.slice(0, 5).map((b) => {
+                            const safeLink = sanitizeSafeUrl(b.linkUrl);
+                            return (
+                              <div
+                                key={b.id}
+                                className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1"
+                              >
+                                <p className="text-xs font-bold text-white break-words">
+                                  {b.title}
+                                </p>
+                                <p className="text-xs text-slate-300 break-words">
+                                  {b.body}
+                                </p>
+                                {safeLink &&
+                                  (isInternalPath(safeLink) ? (
+                                    <Link
+                                      href={safeLink}
+                                      onClick={() => setNotifOpen(false)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
+                                    >
+                                      {b.linkLabel || 'Abrir'}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </Link>
+                                  ) : (
+                                    <a
+                                      href={safeLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
+                                    >
+                                      {b.linkLabel || 'Abrir Link'}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  ))}
+                              </div>
+                            );
+                          })}
+
+                          {notifications.map((n) => {
+                            const safeLink = sanitizeSafeUrl(n.linkUrl);
+                            return (
+                              <div
+                                key={n.id}
+                                onClick={() => {
+                                  if (n.roomId) {
+                                    setNotifOpen(false);
+                                    router.push(`/sala/${n.roomId}`);
+                                  }
+                                }}
+                                className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] cursor-pointer space-y-1"
+                              >
+                                <p className="text-xs font-semibold text-white break-words">
+                                  {n.title}
+                                </p>
+                                <p className="text-xs text-slate-400 break-words">
+                                  {n.body}
+                                </p>
+                                {safeLink &&
+                                  (isInternalPath(safeLink) ? (
+                                    <Link
+                                      href={safeLink}
+                                      onClick={() => setNotifOpen(false)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
+                                    >
+                                      {n.linkLabel || 'Abrir'}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </Link>
+                                  ) : (
+                                    <a
+                                      href={safeLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
+                                    >
+                                      {n.linkLabel || 'Abrir Link'}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -301,9 +440,12 @@ export function AppShell({
           </div>
         </header>
 
+        {/* Top-of-App Ad & Owner Notification Banner directly below Topbar (10s duration, 15min cooldown, X dismiss) */}
+        {user && <AdBroadcastBanner broadcasts={broadcasts} />}
+
         {/* Page Viewport */}
         <main
-          className={`flex-1 w-full max-w-7xl mx-auto px-4 lg:px-8 py-5 lg:py-7 ${
+          className={`flex-1 w-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-5 lg:py-7 min-w-0 ${
             hideBottomNav ? 'pb-8' : 'pb-24 lg:pb-8'
           }`}
         >
@@ -320,8 +462,8 @@ export function AppShell({
           />
           <div className="relative w-72 max-w-[85vw] bg-[#0D101A] border-r border-white/10 h-full flex flex-col z-10 p-4">
             <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center shrink-0">
                   <Image
                     src="/assets/aistudio/favicon_14076ff5.png"
                     alt="Escola de Condução Live"
@@ -331,13 +473,13 @@ export function AppShell({
                     referrerPolicy="no-referrer"
                   />
                 </div>
-                <span className="font-display text-base font-bold text-white">
+                <span className="font-display text-base font-bold text-white truncate">
                   ESCOLA DE CONDUÇÃO
                 </span>
               </div>
               <button
                 onClick={() => setDrawerOpen(false)}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-white cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -358,7 +500,7 @@ export function AppShell({
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span>{item.label}</span>
+                    <span className="truncate">{item.label}</span>
                   </Link>
                 );
               })}

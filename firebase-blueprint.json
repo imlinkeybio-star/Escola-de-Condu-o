@@ -231,17 +231,45 @@
     },
     "NotificationItem": {
       "title": "NotificationItem",
-      "description": "User-targeted competition or achievement notification.",
+      "description": "User-targeted competition, link, or AI notification.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "title": { "type": "string", "maxLength": 100 },
         "body": { "type": "string", "maxLength": 300 },
         "roomId": { "type": "string", "maxLength": 128 },
+        "linkUrl": { "type": "string", "maxLength": 500 },
+        "linkLabel": { "type": "string", "maxLength": 60 },
+        "kind": { "type": "string", "enum": ["informative", "link", "ad_banner", "ad_audio", "ad_video"] },
+        "aiGenerated": { "type": "boolean" },
         "read": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "title", "body", "read", "createdAt"]
+    },
+    "BroadcastItem": {
+      "title": "BroadcastItem",
+      "description": "Owner-defined global AI notification or multimedia ad (banner, link, audio, video).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "kind": { "type": "string", "enum": ["informative", "link", "ad_banner", "ad_audio", "ad_video"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 2, "maxLength": 600 },
+        "linkUrl": { "type": "string", "maxLength": 500 },
+        "linkLabel": { "type": "string", "maxLength": 60 },
+        "mediaUrl": { "type": "string", "maxLength": 500 },
+        "aiGenerated": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "showInBanner": { "type": "boolean" },
+        "durationSeconds": { "type": "integer" },
+        "cooldownMinutes": { "type": "integer" },
+        "createdByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdByEmail": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "kind", "title", "body", "aiGenerated", "active", "showInBanner", "durationSeconds", "cooldownMinutes", "createdByUid", "createdByEmail", "createdAt", "updatedAt"]
     },
     "QuestionBankItem": {
       "title": "QuestionBankItem",
@@ -342,6 +370,10 @@
     "/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/NotificationItem" },
       "description": "User notifications"
+    },
+    "/broadcasts/{broadcastId}": {
+      "schema": { "$ref": "#/entities/BroadcastItem" },
+      "description": "Owner-defined real-time AI notifications and multimedia ads"
     },
     "/question_bank/{questionId}": {
       "schema": { "$ref": "#/entities/QuestionBankItem" },

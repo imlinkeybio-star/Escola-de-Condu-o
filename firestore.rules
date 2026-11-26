@@ -40,6 +40,11 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 200 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidSafeUrl(url) {
+      return url is string && url.size() >= 1 && url.size() <= 500
+        && (url.matches('^https?://[^\\s]+$') || url.matches('^/[^/].*$'));
+    }
+
     function isBootstrappedAdmin() {
       return isSignedIn()
         && request.auth.token.email == 'vitubloguista@gmail.com'
@@ -328,13 +333,46 @@ service cloud.firestore {
 
     function isValidNotification(data) {
       return data.keys().hasAll(['uid', 'title', 'body', 'read', 'createdAt'])
-        && data.keys().hasOnly(['uid', 'title', 'body', 'roomId', 'read', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'title', 'body', 'roomId', 'linkUrl', 'linkLabel', 'kind', 'aiGenerated', 'read', 'createdAt'])
         && data.uid is string && isValidId(data.uid)
         && data.title is string && data.title.size() >= 2 && data.title.size() <= 100
         && data.body is string && data.body.size() >= 2 && data.body.size() <= 300
         && (!('roomId' in data) || (data.roomId is string && data.roomId.size() <= 128))
+        && (!('linkUrl' in data) || isValidSafeUrl(data.linkUrl))
+        && (!('linkLabel' in data) || (data.linkLabel is string && data.linkLabel.size() <= 60))
+        && (!('kind' in data) || data.kind in ['informative', 'link', 'ad_banner', 'ad_audio', 'ad_video'])
+        && (!('aiGenerated' in data) || data.aiGenerated is bool)
         && data.read is bool
         && data.createdAt is timestamp;
+    }
+
+    function isValidBroadcast(data, broadcastId) {
+      return data.keys().hasAll([
+          'id', 'kind', 'title', 'body', 'aiGenerated', 'active',
+          'showInBanner', 'durationSeconds', 'cooldownMinutes',
+          'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'kind', 'title', 'body', 'linkUrl', 'linkLabel', 'mediaUrl',
+          'aiGenerated', 'active', 'showInBanner', 'durationSeconds', 'cooldownMinutes',
+          'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == broadcastId && isValidId(data.id)
+        && data.kind in ['informative', 'link', 'ad_banner', 'ad_audio', 'ad_video']
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 120
+        && data.body is string && data.body.size() >= 2 && data.body.size() <= 600
+        && (!('linkUrl' in data) || isValidSafeUrl(data.linkUrl))
+        && (!('linkLabel' in data) || (data.linkLabel is string && data.linkLabel.size() <= 60))
+        && (!('mediaUrl' in data) || isValidSafeUrl(data.mediaUrl))
+        && data.aiGenerated is bool
+        && data.active is bool
+        && data.showInBanner is bool
+        && data.durationSeconds is int && data.durationSeconds >= 5 && data.durationSeconds <= 60
+        && data.cooldownMinutes is int && data.cooldownMinutes >= 1 && data.cooldownMinutes <= 120
+        && data.createdByUid is string && isValidId(data.createdByUid)
+        && data.createdByEmail is string && data.createdByEmail.size() >= 3 && data.createdByEmail.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
     function isValidQuestionBankItem(data) {
@@ -406,6 +444,19 @@ service cloud.firestore {
           || (
             isOwner(uid) && existing().disabled == false && incoming().disabled == false
             && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])
+          )
+          || (
+            isOwner(uid) && existing().disabled == false && incoming().disabled == false
+            && incoming().totalPoints >= existing().totalPoints
+            && incoming().totalPoints <= existing().totalPoints + 100
+            && incoming().correctAnswers >= existing().correctAnswers
+            && incoming().correctAnswers <= existing().correctAnswers + 1
+            && incoming().totalAnswers == existing().totalAnswers + 1
+            && incoming().gamesPlayed == existing().gamesPlayed
+            && incoming().wins == existing().wins
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'totalPoints', 'correctAnswers', 'totalAnswers', 'tier', 'updatedAt'
+            ])
           )
           || (
             isOwner(uid) && existing().disabled == false && incoming().disabled == false
@@ -752,11 +803,11 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow get: if isSignedIn() && isValidId(notificationId) && (existing().uid == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(notificationId) && (existing().uid == request.auth.uid || isBootstrappedAdmin());
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isSignedIn() && isValidId(notificationId)
         && isValidNotification(incoming())
-        && (incoming().uid == request.auth.uid || isAdmin())
+        && (incoming().uid == request.auth.uid || isBootstrappedAdmin())
         && incoming().createdAt == request.time;
       allow update: if isSignedIn() && isValidId(notificationId)
         && isValidNotification(incoming())
@@ -764,7 +815,24 @@ service cloud.firestore {
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
         && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
-      allow delete: if isSignedIn() && isValidId(notificationId) && existing().uid == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(notificationId) && (existing().uid == request.auth.uid || isBootstrappedAdmin());
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow get: if isSignedIn() && isValidId(broadcastId) && (existing().active == true || isBootstrappedAdmin());
+      allow list: if isSignedIn() && (resource.data.active == true || isBootstrappedAdmin());
+      allow create: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin()
+        && isValidBroadcast(incoming(), broadcastId)
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin()
+        && isValidBroadcast(incoming(), broadcastId)
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin();
     }
 
     match /question_bank/{questionId} {

@@ -281,6 +281,52 @@ Regras:
   );
 }
 
+export async function generateAiBroadcastContent(params: {
+  kind: string;
+  topic: string;
+}): Promise<{ title: string; body: string; suggestedLinkLabel: string }> {
+  const ai = getAIClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-4-hydrogen',
+    contents: `Cria uma comunicação em português de Angola para a plataforma Escola de Condução Live.
+Tipo de comunicação: ${params.kind}
+Tema / objetivo definido pelo dono da app: ${params.topic}
+
+Regras:
+- Título curto, claro e atrativo (máximo 80 caracteres).
+- Corpo informativo e persuasivo adequado a alunos de condução em Angola (máximo 240 caracteres).
+- Sugestão de texto curto para botão de link clicável (máximo 28 caracteres, ex: "Participar Agora", "Saber Mais").`,
+    config: {
+      systemInstruction:
+        'És o redator oficial e assistente de comunicação da Escola de Condução Live em Angola. Escreve em português claro e envolvente.',
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          body: { type: Type.STRING },
+          suggestedLinkLabel: { type: Type.STRING },
+        },
+        required: ['title', 'body', 'suggestedLinkLabel'],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+    title?: string;
+    body?: string;
+    suggestedLinkLabel?: string;
+  };
+  if (!parsed.title || !parsed.body) {
+    throw new Error('A IA não conseguiu gerar o conteúdo da notificação.');
+  }
+  return {
+    title: parsed.title.trim().slice(0, 110),
+    body: parsed.body.trim().slice(0, 500),
+    suggestedLinkLabel: (parsed.suggestedLinkLabel || 'Abrir Link').trim().slice(0, 40),
+  };
+}
+
 // In-memory LRU cache for synthesized TTS WAV audio (max 80 entries)
 const ttsCache = new Map<string, string>();
 

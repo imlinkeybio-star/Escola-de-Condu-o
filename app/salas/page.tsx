@@ -128,9 +128,9 @@ function SalasContent() {
     <AppShell title="Salas de Competição ao Vivo">
       <div className="space-y-6">
         {/* Top Action Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5">
-          <form onSubmit={handleJoinByCode} className="flex-1 flex gap-2">
-            <div className="relative flex-1">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 min-w-0">
+          <form onSubmit={handleJoinByCode} className="flex-1 flex flex-col sm:flex-row gap-2 min-w-0">
+            <div className="relative flex-1 min-w-0">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -142,7 +142,7 @@ function SalasContent() {
             </div>
             <button
               type="submit"
-              className="min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer whitespace-nowrap"
+              className="min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer whitespace-nowrap shrink-0"
             >
               Procurar
             </button>
@@ -150,7 +150,7 @@ function SalasContent() {
 
           <button
             onClick={() => setShowCreate(true)}
-            className="min-h-[44px] px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+            className="w-full md:w-auto min-h-[44px] px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
           >
             <PlusCircle className="w-4 h-4" />
             Criar Nova Sala (IA)
@@ -158,13 +158,13 @@ function SalasContent() {
         </div>
 
         {error && (
-          <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/40 text-sm text-red-200">
+          <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/40 text-sm text-red-200 break-words">
             {error}
           </div>
         )}
 
         {/* Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
           {(
             [
               { id: 'all', label: 'Todas' },
@@ -212,33 +212,33 @@ function SalasContent() {
               return (
                 <div
                   key={r.roomId}
-                  className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 flex flex-col justify-between space-y-4"
+                  className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 flex flex-col justify-between space-y-4 min-w-0"
                 >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
+                  <div className="space-y-2 min-w-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
                       <span className="font-mono-tabular text-slate-400">
                         {r.code} · {r.difficulty}
                       </span>
                       <span
-                        className={`font-bold ${
+                        className={`font-bold tabular-nums ${
                           closed ? 'text-slate-400' : 'text-emerald-400'
                         }`}
                       >
                         {closed
-                          ? 'Encerrada (100/100)'
+                          ? `Encerrada (${fin}/100 finalistas)`
                           : `Aberta · ${fin}/100 finalistas`}
                       </span>
                     </div>
-                    <h3 className="text-lg font-bold text-white leading-snug">
+                    <h3 className="text-lg font-bold text-white leading-snug break-words">
                       {r.title}
                     </h3>
-                    <p className="text-xs text-slate-400 line-clamp-2">
+                    <p className="text-xs text-slate-400 line-clamp-2 break-words">
                       {r.description}
                     </p>
                   </div>
 
                   <div className="space-y-3 pt-2 border-t border-white/[0.06]">
-                    <div className="flex items-center justify-between text-xs text-slate-300">
+                    <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-slate-300 tabular-nums">
                       <span className="inline-flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-slate-400" />
                         {r.participantCount} alunos · {fin}/100 concluíram
@@ -249,10 +249,12 @@ function SalasContent() {
                     </div>
                     <Link
                       href={`/sala/${r.roomId}`}
-                      className="w-full min-h-[42px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                      className="w-full min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
                     >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
+                      <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                      <span className="truncate">
+                        {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
+                      </span>
                     </Link>
                   </div>
                 </div>
@@ -309,8 +311,8 @@ function SalasContent() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
                       Categoria
                     </label>
@@ -326,7 +328,7 @@ function SalasContent() {
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
                       Dificuldade
                     </label>
@@ -345,8 +347,8 @@ function SalasContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
                       Perguntas
                     </label>
@@ -361,7 +363,7 @@ function SalasContent() {
                       className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
                       Tempo (seg)
                     </label>
@@ -376,7 +378,7 @@ function SalasContent() {
                       className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
                       Máx. Alunos
                     </label>

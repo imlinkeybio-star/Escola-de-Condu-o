@@ -180,8 +180,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   const myParticipant = participants.find((p) => p.uid === user?.uid) || null;
   const myStatus: ParticipantStatus = myParticipant?.status || 'WAITING';
   const qIndex = myParticipant?.currentQuestionIndex ?? -1;
-  const finishedCount =
-    typeof room?.finishedCount === 'number' ? room.finishedCount : 0;
+  const finishedCount = Math.max(
+    typeof room?.finishedCount === 'number' ? room.finishedCount : 0,
+    participants.filter((p) => p.status === 'FINISHED').length
+  );
   const isRoomClosed =
     room?.status === 'FINISHED' || finishedCount >= 100;
 
@@ -578,25 +580,25 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       : 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 w-full max-w-full overflow-x-hidden min-w-0">
       {/* Top Arena Status Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#111520] border border-white/[0.08] rounded-2xl px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#111520] border border-white/[0.08] rounded-2xl px-4 py-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Link
             href="/salas"
-            className="min-w-[40px] min-h-[40px] rounded-xl bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center text-slate-300"
+            className="min-w-[40px] min-h-[40px] rounded-xl bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center text-slate-300 shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
               {isRoomClosed ? (
-                <span className="inline-flex items-center gap-1.5 font-bold text-slate-300">
+                <span className="inline-flex items-center gap-1.5 font-bold text-slate-300 tabular-nums">
                   <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  RANKING ENCERRADO (100/100)
+                  RANKING ENCERRADO ({finishedCount}/100)
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 font-bold text-emerald-400">
+                <span className="inline-flex items-center gap-1.5 font-bold text-emerald-400 tabular-nums">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   RANKING EM DIRECTO ({finishedCount}/100 finalistas)
                 </span>
@@ -676,19 +678,21 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
+                  <p className="text-xs font-bold uppercase tracking-widest text-amber-400 tabular-nums">
                     {isRoomClosed
-                      ? 'Competição Encerrada · 100/100 Finalistas'
+                      ? `Competição Encerrada · ${finishedCount}/100 Finalistas`
                       : `A Tua Prova Terminou · ${finishedCount}/100 Finalistas`}
                   </p>
-                  <h3 className="font-display text-3xl sm:text-4xl font-extrabold text-white">
+                  <h3 className="font-display text-2xl sm:text-4xl font-extrabold text-white break-words">
                     {myStatus === 'FINISHED'
                       ? `Obtiveste ${myParticipant?.score ?? 0} pontos!`
                       : 'Ranking da Sala Encerrado'}
                   </h3>
                   <p className="text-sm text-slate-300 max-w-xl mx-auto">
                     {isRoomClosed
-                      ? '100 alunos já finalizaram o jogo nesta sala. O ranking oficial foi encerrado.'
+                      ? finishedCount >= 100
+                        ? '100 alunos já finalizaram o jogo nesta sala. O ranking oficial foi encerrado.'
+                        : `Esta sala foi encerrada com ${finishedCount}/100 finalistas registados.`
                       : 'Esta sala fechou apenas para ti para consultares os teus resultados. Outros alunos podem continuar a jogar com novas perguntas aleatórias até completar 100 finalistas, e o ranking continua em direto.'}
                   </p>
                 </div>
@@ -1036,7 +1040,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                         key={idx}
                         onClick={() => handleSelectOption(idx)}
                         disabled={locked || submitting}
-                        className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default ${
+                        className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default min-w-0 ${
                           isSelected
                             ? 'bg-red-600 border-red-400 text-white shadow-lg shadow-red-600/20'
                             : locked
@@ -1053,7 +1057,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                         >
                           {OPTION_LETTERS[idx]}
                         </span>
-                        <span className="text-sm sm:text-base font-medium leading-snug">
+                        <span className="text-sm sm:text-base font-medium leading-snug break-words min-w-0 flex-1">
                           {opt}
                         </span>
                       </button>

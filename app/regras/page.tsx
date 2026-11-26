@@ -95,18 +95,18 @@ export default function RegrasPage() {
             </div>
           </div>
 
-          <form onSubmit={handleAsk} className="flex flex-col sm:flex-row gap-2.5">
+          <form onSubmit={handleAsk} className="flex flex-col sm:flex-row gap-2.5 min-w-0">
             <input
               type="text"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="Ex: Quem tem prioridade numa rotunda em Angola?"
-              className="flex-1 min-h-[46px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
+              className="flex-1 min-w-0 min-h-[46px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
             />
             <button
               type="submit"
               disabled={asking || !user}
-              className="min-h-[46px] px-5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+              className="w-full sm:w-auto min-h-[46px] px-5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
             >
               <Send className="w-4 h-4" />
               {asking ? 'A analisar...' : 'Perguntar à IA'}

@@ -132,8 +132,8 @@ export default function ResultadoPage({
           <p className="text-slate-300">Resultado não encontrado.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
+        <div className="space-y-6 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Link
               href="/historico"
               className="inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white"
@@ -142,30 +142,37 @@ export default function ResultadoPage({
               Voltar ao Histórico
             </Link>
             <span className="text-xs font-mono-tabular text-slate-400">
-              Sala {room.code}
+              Sala {room.code} ·{' '}
+              {Math.max(
+                room.finishedCount ?? 0,
+                participants.filter((p) => p.status === 'FINISHED').length
+              )}
+              /100 finalistas
             </span>
           </div>
 
-          <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <Trophy className="w-6 h-6 text-amber-400" />
-              <h2 className="text-xl font-bold text-white">{room.title}</h2>
+          <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 space-y-4 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <Trophy className="w-6 h-6 text-amber-400 shrink-0" />
+              <h2 className="text-xl font-bold text-white break-words min-w-0">
+                {room.title}
+              </h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {participants.slice(0, 3).map((p, idx) => (
                 <div
                   key={p.uid}
-                  className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06] flex items-center justify-between"
+                  className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06] flex items-center justify-between gap-3 min-w-0"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs text-amber-400 font-bold">
                       {idx + 1}.º Lugar
                     </p>
-                    <p className="text-sm font-bold text-white">
+                    <p className="text-sm font-bold text-white truncate">
                       {p.displayName}
                     </p>
                   </div>
-                  <span className="font-mono-tabular font-bold text-amber-400">
+                  <span className="font-mono-tabular font-bold text-amber-400 shrink-0">
                     {p.score} pts
                   </span>
                 </div>

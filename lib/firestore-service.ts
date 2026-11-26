@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -18,6 +19,8 @@ import { User } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import {
   ACHIEVEMENTS_CATALOG,
+  BroadcastItem,
+  BroadcastKind,
   computeDriverTier,
   CompetitionRoom,
   DifficultyLevel,
@@ -29,6 +32,7 @@ import {
   UserPrivateInfo,
   UserProfile,
 } from './types';
+import { isAppOwnerEmail, sanitizeSafeUrl } from './url-safety';
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120) || 'id';
@@ -615,6 +619,10 @@ export async function revealAndScorePlayerRound(params: {
     `${params.question.questionIndex}_${user.uid}`
   );
 
+  let scoredDeltaPoints = 0;
+  let scoredDeltaCorrect = 0;
+  let didScoreThisRound = false;
+
   try {
     await runTransaction(db, async (tx) => {
       const partSnap = await tx.get(partRef);
@@ -628,10 +636,14 @@ export async function revealAndScorePlayerRound(params: {
       const isCorrect =
         ansSnap.exists() && ansSnap.data().selectedIndex === revealData.correctIndex;
 
+      scoredDeltaPoints = isCorrect ? params.room.pointsPerCorrect : 0;
+      scoredDeltaCorrect = isCorrect ? 1 : 0;
+      didScoreThisRound = true;
+
       tx.update(partRef, {
         status: 'ANSWER_REVEAL',
-        score: isCorrect ? part.score + params.room.pointsPerCorrect : part.score,
-        correctCount: isCorrect ? part.correctCount + 1 : part.correctCount,
+        score: part.score + scoredDeltaPoints,
+        correctCount: part.correctCount + scoredDeltaCorrect,
         wrongCount: isCorrect ? part.wrongCount : part.wrongCount + 1,
         lastScoredQuestionIndex: params.question.questionIndex,
         lastActiveAt: serverTimestamp(),
@@ -643,6 +655,30 @@ export async function revealAndScorePlayerRound(params: {
       OperationType.UPDATE,
       `rooms/${params.room.roomId}/participants/${user.uid}`
     );
+  }
+
+  // Real-time live profile update on every scored question so Dashboard, Estatísticas & Perfil update during the game
+  if (didScoreThisRound) {
+    const userRef = doc(db, 'users', user.uid);
+    try {
+      await runTransaction(db, async (tx) => {
+        const uSnap = await tx.get(userRef);
+        if (!uSnap.exists()) return;
+        const u = uSnap.data() as UserProfile;
+        const nextPoints = (u.totalPoints || 0) + scoredDeltaPoints;
+        const nextCorrect = (u.correctAnswers || 0) + scoredDeltaCorrect;
+        const nextTotalAns = (u.totalAnswers || 0) + 1;
+        tx.update(userRef, {
+          totalPoints: nextPoints,
+          correctAnswers: nextCorrect,
+          totalAnswers: nextTotalAns,
+          tier: computeDriverTier(nextPoints),
+          updatedAt: serverTimestamp(),
+        });
+      });
+    } catch (err) {
+      console.warn('Atualização live de estatísticas após pergunta:', err);
+    }
   }
 
   const snap = await getDoc(revealedRef);
@@ -796,20 +832,26 @@ export async function recordMyCompetitionResult(params: {
     handleFirestoreError(err, OperationType.CREATE, `results/${resultId}`);
   }
 
-  // Update UserProfile stats
-  const newPoints = params.profile.totalPoints + me.score;
-  const newWins = params.profile.wins + (isWinner ? 1 : 0);
-  const newGames = params.profile.gamesPlayed + 1;
-  const newCorrect = params.profile.correctAnswers + me.correctCount;
-  const newTotalAns = params.profile.totalAnswers + totalAnswered;
-  const newStreak = me.score > 0 ? params.profile.currentStreak + 1 : 0;
-  const newBestStreak = Math.max(params.profile.bestStreak, newStreak);
+  // Read fresh UserProfile from Firestore so stats never drift on consecutive games
+  const userRef = doc(db, 'users', params.profile.uid);
+  const freshSnap = await getDoc(userRef);
+  const baseProfile = freshSnap.exists()
+    ? (freshSnap.data() as UserProfile)
+    : params.profile;
+
+  const newPoints = Math.max(baseProfile.totalPoints, me.score);
+  const newWins = baseProfile.wins + (isWinner ? 1 : 0);
+  const newGames = baseProfile.gamesPlayed + 1;
+  const newCorrect = Math.max(baseProfile.correctAnswers, me.correctCount);
+  const newTotalAns = Math.max(baseProfile.totalAnswers, totalAnswered);
+  const newStreak = me.score > 0 ? baseProfile.currentStreak + 1 : 0;
+  const newBestStreak = Math.max(baseProfile.bestStreak, newStreak);
   const newTier = computeDriverTier(newPoints);
   const overallAcc =
     newTotalAns > 0 ? Math.round((newCorrect / newTotalAns) * 100) : 0;
 
   try {
-    await updateDoc(doc(db, 'users', params.profile.uid), {
+    await updateDoc(userRef, {
       totalPoints: newPoints,
       wins: newWins,
       gamesPlayed: newGames,
@@ -828,14 +870,14 @@ export async function recordMyCompetitionResult(params: {
   const globalRef = doc(db, 'global_rankings', params.profile.uid);
   const globalPayload: Record<string, unknown> = {
     uid: params.profile.uid,
-    displayName: params.profile.displayName,
+    displayName: baseProfile.displayName,
     points: newPoints,
     wins: newWins,
     gamesPlayed: newGames,
     accuracy: overallAcc,
     updatedAt: serverTimestamp(),
   };
-  if (params.profile.photoURL) globalPayload.photoURL = params.profile.photoURL;
+  if (baseProfile.photoURL) globalPayload.photoURL = baseProfile.photoURL;
 
   try {
     await setDoc(globalRef, globalPayload, { merge: true });
@@ -856,7 +898,7 @@ export async function recordMyCompetitionResult(params: {
     const prev = weeklySnap.exists() ? weeklySnap.data() : null;
     const weeklyData: Record<string, unknown> = {
       uid: params.profile.uid,
-      displayName: params.profile.displayName,
+      displayName: baseProfile.displayName,
       points: (prev?.points || 0) + me.score,
       wins: (prev?.wins || 0) + (isWinner ? 1 : 0),
       gamesPlayed: (prev?.gamesPlayed || 0) + 1,
@@ -864,7 +906,7 @@ export async function recordMyCompetitionResult(params: {
       weekKey,
       updatedAt: serverTimestamp(),
     };
-    if (params.profile.photoURL) weeklyData.photoURL = params.profile.photoURL;
+    if (baseProfile.photoURL) weeklyData.photoURL = baseProfile.photoURL;
     await setDoc(weeklyRef, weeklyData);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `weekly_rankings/${weeklyId}`);
@@ -983,3 +1025,99 @@ export async function fetchActivePublicRooms(maxCount = 20): Promise<Competition
     handleFirestoreError(err, OperationType.LIST, 'rooms');
   }
 }
+
+export async function createOwnerBroadcast(params: {
+  kind: BroadcastKind;
+  title: string;
+  body: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  mediaUrl?: string;
+  aiGenerated: boolean;
+  active: boolean;
+  showInBanner: boolean;
+  durationSeconds?: number;
+  cooldownMinutes?: number;
+}): Promise<BroadcastItem> {
+  const user = auth.currentUser;
+  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
+    throw new Error('Apenas o dono da aplicação pode criar notificações e anúncios.');
+  }
+
+  const safeLink = params.linkUrl?.trim() ? sanitizeSafeUrl(params.linkUrl) : null;
+  if (params.linkUrl?.trim() && !safeLink) {
+    throw new Error('Link inválido. Usa um endereço https://, http:// ou rota interna /...');
+  }
+  const safeMedia = params.mediaUrl?.trim() ? sanitizeSafeUrl(params.mediaUrl) : null;
+  if (params.mediaUrl?.trim() && !safeMedia) {
+    throw new Error('URL de mídia inválido. Usa https:// ou http://.');
+  }
+
+  const id = sanitizeId(`bc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+  const payload: Record<string, unknown> = {
+    id,
+    kind: params.kind,
+    title: params.title.trim().slice(0, 120),
+    body: params.body.trim().slice(0, 600),
+    aiGenerated: Boolean(params.aiGenerated),
+    active: Boolean(params.active),
+    showInBanner: Boolean(params.showInBanner),
+    durationSeconds: Math.min(Math.max(Math.round(params.durationSeconds ?? 10), 5), 60),
+    cooldownMinutes: Math.min(Math.max(Math.round(params.cooldownMinutes ?? 15), 1), 120),
+    createdByUid: user.uid,
+    createdByEmail: (user.email || 'vitubloguista@gmail.com').slice(0, 200),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (safeLink) payload.linkUrl = safeLink;
+  if (params.linkLabel?.trim()) payload.linkLabel = params.linkLabel.trim().slice(0, 60);
+  if (safeMedia) payload.mediaUrl = safeMedia;
+
+  try {
+    await setDoc(doc(db, 'broadcasts', id), payload);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `broadcasts/${id}`);
+  }
+
+  await logAdminAudit({
+    action: 'CREATE_BROADCAST',
+    targetType: 'broadcast',
+    targetId: id,
+    details: `Criado anúncio/notificação (${params.kind}): "${params.title.trim().slice(0, 80)}".`,
+  });
+
+  const snap = await getDoc(doc(db, 'broadcasts', id));
+  return snap.data() as BroadcastItem;
+}
+
+export async function toggleOwnerBroadcastActive(
+  broadcastId: string,
+  active: boolean
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
+    throw new Error('Apenas o dono da aplicação pode alterar anúncios.');
+  }
+  try {
+    await updateDoc(doc(db, 'broadcasts', broadcastId), {
+      active,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `broadcasts/${broadcastId}`);
+  }
+}
+
+export async function deleteOwnerBroadcast(broadcastId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
+    throw new Error('Apenas o dono da aplicação pode remover anúncios.');
+  }
+  try {
+    await deleteDoc(doc(db, 'broadcasts', broadcastId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `broadcasts/${broadcastId}`);
+  }
+}
+

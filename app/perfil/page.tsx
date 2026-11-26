@@ -12,17 +12,33 @@ import {
   Star,
   Trophy,
 } from 'lucide-react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
 import {
+  LiveAnswerBreakdownBar,
+  LiveTrendSvgChart,
+} from '@/components/LivePerformanceCharts';
+import {
   AchievementRecord,
   ACHIEVEMENTS_CATALOG,
   ANGOLA_PROVINCES,
+  UserResult,
 } from '@/lib/types';
 import { updateUserProfileDetails } from '@/lib/firestore-service';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
+
+function toMillis(ts: unknown): number {
+  if (!ts) return 0;
+  if (typeof (ts as { toMillis?: () => number }).toMillis === 'function') {
+    return (ts as { toMillis: () => number }).toMillis();
+  }
+  if (typeof (ts as { seconds?: number }).seconds === 'number') {
+    return (ts as { seconds: number }).seconds * 1000;
+  }
+  return 0;
+}
 
 export default function PerfilPage() {
   const { user, profile, privateInfo, refreshProfile } = useAuth();
@@ -33,20 +49,41 @@ export default function PerfilPage() {
   const [province, setProvince] = useState('Luanda');
   const [saving, setSaving] = useState(false);
   const [achievements, setAchievements] = useState<AchievementRecord[]>([]);
+  const [results, setResults] = useState<UserResult[]>([]);
 
   useEffect(() => {
     if (!user) return;
-    const q = query(
+    const aq = query(
       collection(db, 'achievements'),
       where('uid', '==', user.uid)
     );
-    const unsub = onSnapshot(
-      q,
+    const unsubA = onSnapshot(
+      aq,
       (snap) =>
         setAchievements(snap.docs.map((d) => d.data() as AchievementRecord)),
       (err) => handleFirestoreError(err, OperationType.LIST, 'achievements')
     );
-    return () => unsub();
+
+    const rq = query(
+      collection(db, 'results'),
+      where('uid', '==', user.uid),
+      limit(20)
+    );
+    const unsubR = onSnapshot(
+      rq,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as UserResult)
+          .sort((a, b) => toMillis(b.finishedAt) - toMillis(a.finishedAt));
+        setResults(list);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsubA();
+      unsubR();
+    };
   }, [user]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -72,7 +109,7 @@ export default function PerfilPage() {
         <div className="bg-[#111520] border border-white/10 rounded-2xl p-8 text-center">
           <Link
             href="/entrar"
-            className="px-6 py-3 rounded-xl bg-red-600 text-white text-sm font-bold"
+            className="inline-block px-6 py-3 rounded-xl bg-red-600 text-white text-sm font-bold"
           >
             Entrar para ver perfil
           </Link>
@@ -98,9 +135,9 @@ export default function PerfilPage() {
 
   return (
     <AppShell title="Meu Perfil">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6 min-w-0">
         {/* Profile Header Card */}
-        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 text-center space-y-4 relative">
+        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 text-center space-y-4 relative min-w-0">
           <Link
             href="/definicoes"
             aria-label="Definições"
@@ -134,41 +171,41 @@ export default function PerfilPage() {
             </button>
           </div>
 
-          <div>
-            <h2 className="text-2xl font-bold text-white">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold text-white break-words">
               {profile.displayName}
             </h2>
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400 mt-1">
               {profile.tier} · {privateInfo?.province || 'Luanda'}
             </p>
             {privateInfo?.drivingSchool && (
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-400 mt-0.5 break-words">
                 {privateInfo.drivingSchool}
               </p>
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3 max-w-md mx-auto pt-2">
-            <div className="p-3 rounded-xl bg-[#161B29]">
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-3 max-w-md mx-auto pt-2">
+            <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Star className="w-4 h-4 text-amber-400 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
                 {profile.totalPoints}
               </p>
-              <p className="text-[11px] text-slate-400">Pontos</p>
+              <p className="text-[11px] text-slate-400 truncate">Pontos</p>
             </div>
-            <div className="p-3 rounded-xl bg-[#161B29]">
+            <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Trophy className="w-4 h-4 text-amber-400 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
                 {profile.wins}
               </p>
-              <p className="text-[11px] text-slate-400">Vitórias</p>
+              <p className="text-[11px] text-slate-400 truncate">Vitórias</p>
             </div>
-            <div className="p-3 rounded-xl bg-[#161B29]">
+            <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Flame className="w-4 h-4 text-red-500 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
                 {profile.currentStreak}
               </p>
-              <p className="text-[11px] text-slate-400">Sequência</p>
+              <p className="text-[11px] text-slate-400 truncate">Sequência</p>
             </div>
           </div>
 
@@ -189,7 +226,7 @@ export default function PerfilPage() {
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white mt-1"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-400">
                     Escola de Condução
@@ -233,7 +270,7 @@ export default function PerfilPage() {
         <div className="grid grid-cols-2 gap-2 p-1 bg-[#111520] border border-white/[0.08] rounded-xl">
           <button
             onClick={() => setTab('desempenho')}
-            className={`py-2.5 rounded-lg text-sm font-bold transition-colors cursor-pointer ${
+            className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
               tab === 'desempenho'
                 ? 'bg-red-600 text-white'
                 : 'text-slate-400 hover:text-white'
@@ -243,7 +280,7 @@ export default function PerfilPage() {
           </button>
           <button
             onClick={() => setTab('conquistas')}
-            className={`py-2.5 rounded-lg text-sm font-bold transition-colors cursor-pointer ${
+            className={`py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
               tab === 'conquistas'
                 ? 'bg-red-600 text-white'
                 : 'text-slate-400 hover:text-white'
@@ -254,64 +291,77 @@ export default function PerfilPage() {
         </div>
 
         {tab === 'desempenho' ? (
-          <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-around gap-6">
-            <div className="relative w-32 h-32 flex items-center justify-center">
-              <svg className="w-32 h-32 -rotate-90" viewBox="0 0 110 110">
-                <circle
-                  cx="55"
-                  cy="55"
-                  r={radius}
-                  stroke="#1E2536"
-                  strokeWidth="10"
-                  fill="none"
-                />
-                <circle
-                  cx="55"
-                  cy="55"
-                  r={radius}
-                  stroke="#22C55E"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                  fill="none"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={dashOffset}
-                />
-              </svg>
-              <div className="absolute text-center">
-                <span className="font-mono-tabular text-2xl font-extrabold text-white block">
-                  {accuracy}%
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  Taxa de Acerto
-                </span>
+          <div className="space-y-5">
+            <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row items-center justify-around gap-6">
+              <div className="relative w-32 h-32 flex items-center justify-center shrink-0">
+                <svg className="w-32 h-32 -rotate-90" viewBox="0 0 110 110">
+                  <circle
+                    cx="55"
+                    cy="55"
+                    r={radius}
+                    stroke="#1E2536"
+                    strokeWidth="10"
+                    fill="none"
+                  />
+                  <circle
+                    cx="55"
+                    cy="55"
+                    r={radius}
+                    stroke="#22C55E"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    fill="none"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={dashOffset}
+                  />
+                </svg>
+                <div className="absolute text-center">
+                  <span className="font-mono-tabular text-2xl font-extrabold text-white block">
+                    {accuracy}%
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Taxa de Acerto
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-5 sm:gap-6 text-center sm:text-left">
+                <div>
+                  <p className="text-xs text-slate-400">Total de Jogos</p>
+                  <p className="font-mono-tabular text-2xl font-bold text-white mt-0.5">
+                    {profile.gamesPlayed}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Média de Pontos</p>
+                  <p className="font-mono-tabular text-2xl font-bold text-amber-400 mt-0.5">
+                    {avgPoints} pts
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Respostas Certas</p>
+                  <p className="font-mono-tabular text-xl font-bold text-emerald-400 mt-0.5">
+                    {profile.correctAnswers}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Melhor Sequência</p>
+                  <p className="font-mono-tabular text-xl font-bold text-red-400 mt-0.5">
+                    {profile.bestStreak}
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6 text-center sm:text-left">
-              <div>
-                <p className="text-xs text-slate-400">Total de Jogos</p>
-                <p className="font-mono-tabular text-2xl font-bold text-white mt-0.5">
-                  {profile.gamesPlayed}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Média de Pontos</p>
-                <p className="font-mono-tabular text-2xl font-bold text-amber-400 mt-0.5">
-                  {avgPoints} pts
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Respostas Certas</p>
-                <p className="font-mono-tabular text-xl font-bold text-emerald-400 mt-0.5">
-                  {profile.correctAnswers}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Melhor Sequência</p>
-                <p className="font-mono-tabular text-xl font-bold text-red-400 mt-0.5">
-                  {profile.bestStreak}
-                </p>
-              </div>
+            <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-5 min-w-0">
+              <h3 className="text-base font-bold text-white">
+                Progresso em Tempo Real
+              </h3>
+              <LiveAnswerBreakdownBar
+                correctAnswers={profile.correctAnswers}
+                totalAnswers={profile.totalAnswers}
+              />
+              <LiveTrendSvgChart results={results} height={170} />
             </div>
           </div>
         ) : (
@@ -336,8 +386,10 @@ export default function PerfilPage() {
                   >
                     <Award className="w-6 h-6" />
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-white">{ach.title}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white truncate">
+                      {ach.title}
+                    </p>
                     <p className="text-xs text-slate-400">{ach.description}</p>
                   </div>
                 </div>

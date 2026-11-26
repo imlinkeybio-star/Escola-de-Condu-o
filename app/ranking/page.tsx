@@ -145,11 +145,11 @@ export default function RankingPage() {
   return (
     <AppShell title="Classificação e Rankings">
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Trophy className="w-7 h-7 text-amber-400" />
-            <div>
-              <h2 className="font-display text-2xl font-extrabold text-white">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <Trophy className="w-7 h-7 text-amber-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl font-extrabold text-white break-words">
                 Ranking Oficial Angola
               </h2>
               <p className="text-xs text-slate-400">
@@ -159,7 +159,7 @@ export default function RankingPage() {
           </div>
 
           {/* 3 Ranking Tabs */}
-          <div className="flex items-center gap-1 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
             {(
               [
                 { id: 'global', label: 'Geral' },
@@ -183,14 +183,14 @@ export default function RankingPage() {
         </div>
 
         {tab === 'room' && rooms.length > 0 && (
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-slate-400">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
+            <label className="text-xs font-medium text-slate-400 shrink-0">
               Selecionar Sala:
             </label>
             <select
               value={selectedRoomId}
               onChange={(e) => setSelectedRoomId(e.target.value)}
-              className="min-h-[40px] px-3 rounded-xl bg-[#111520] border border-white/15 text-sm text-white"
+              className="w-full sm:w-auto max-w-full min-h-[40px] px-3 rounded-xl bg-[#111520] border border-white/15 text-sm text-white truncate"
             >
               {rooms.map((r) => (
                 <option key={r.roomId} value={r.roomId}>
