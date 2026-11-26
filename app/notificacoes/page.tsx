@@ -7,7 +7,6 @@ import {
   ExternalLink,
   Megaphone,
   Sparkles,
-  Video,
   Volume2,
 } from 'lucide-react';
 import {
@@ -22,12 +21,12 @@ import {
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
-import { BroadcastItem, NotificationItem } from '@/lib/types';
 import {
-  extractYouTubeEmbedUrl,
-  isInternalPath,
-  sanitizeSafeUrl,
-} from '@/lib/url-safety';
+  FacebookStyleAdCard,
+  FullscreenVideoAdModal,
+} from '@/components/FacebookAdUnit';
+import { BroadcastItem, NotificationItem } from '@/lib/types';
+import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -56,6 +55,7 @@ export default function NotificacoesPage() {
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
   const [personal, setPersonal] = useState<NotificationItem[]>([]);
   const [tab, setTab] = useState<'all' | 'broadcasts' | 'personal'>('all');
+  const [previewVideo, setPreviewVideo] = useState<BroadcastItem | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -126,6 +126,14 @@ export default function NotificacoesPage() {
 
   return (
     <AppShell title="Central de Notificações">
+      {previewVideo && (
+        <FullscreenVideoAdModal
+          ad={previewVideo}
+          isPreview
+          onClose={() => setPreviewVideo(null)}
+        />
+      )}
+
       <div className="space-y-6 min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="min-w-0">
@@ -173,19 +181,26 @@ export default function NotificacoesPage() {
 
         {/* Global Owner / AI Broadcasts */}
         {(tab === 'all' || tab === 'broadcasts') && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {broadcasts.length === 0 && tab === 'broadcasts' ? (
               <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center text-sm text-slate-400">
                 Sem comunicados ou anúncios ativos neste momento.
               </div>
             ) : (
               broadcasts.map((b) => {
+                if (b.kind === 'ad_banner' || b.kind === 'ad_video') {
+                  return (
+                    <div key={b.id} className="max-w-2xl">
+                      <FacebookStyleAdCard
+                        ad={b}
+                        onOpenFullscreen={(ad) => setPreviewVideo(ad)}
+                      />
+                    </div>
+                  );
+                }
+
                 const safeLink = sanitizeSafeUrl(b.linkUrl);
                 const safeMedia = sanitizeSafeUrl(b.mediaUrl);
-                const ytEmbed =
-                  b.kind === 'ad_video'
-                    ? extractYouTubeEmbedUrl(safeMedia)
-                    : null;
 
                 return (
                   <div
@@ -196,8 +211,6 @@ export default function NotificacoesPage() {
                       <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
                         {b.kind === 'ad_audio' ? (
                           <Volume2 className="w-4 h-4 shrink-0" />
-                        ) : b.kind === 'ad_video' ? (
-                          <Video className="w-4 h-4 shrink-0" />
                         ) : b.aiGenerated ? (
                           <Sparkles className="w-4 h-4 shrink-0" />
                         ) : (
@@ -206,13 +219,9 @@ export default function NotificacoesPage() {
                         <span className="uppercase tracking-wider">
                           {b.kind === 'ad_audio'
                             ? 'Áudio'
-                            : b.kind === 'ad_video'
-                              ? 'Vídeo'
-                              : b.kind === 'ad_banner'
-                                ? 'Anúncio'
-                                : b.kind === 'link'
-                                  ? 'Link Oficial'
-                                  : 'Informativa'}
+                            : b.kind === 'link'
+                              ? 'Link Oficial'
+                              : 'Informativa'}
                           {b.aiGenerated ? ' · Gerado por IA' : ''}
                         </span>
                       </div>
@@ -236,27 +245,6 @@ export default function NotificacoesPage() {
                         controls
                         className="w-full max-w-md h-10"
                       />
-                    )}
-
-                    {b.kind === 'ad_video' && safeMedia && (
-                      <div className="w-full max-w-md aspect-video rounded-xl overflow-hidden bg-black border border-white/10">
-                        {ytEmbed ? (
-                          <iframe
-                            src={ytEmbed}
-                            title={b.title}
-                            className="w-full h-full"
-                            allow="encrypted-media"
-                            allowFullScreen
-                          />
-                        ) : (
-                          <video
-                            src={safeMedia}
-                            controls
-                            playsInline
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                      </div>
                     )}
 
                     {safeLink && (

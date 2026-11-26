@@ -37,6 +37,12 @@ const nextConfig = (phase: string): NextConfig => ({
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: '**',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
   output: 'standalone',

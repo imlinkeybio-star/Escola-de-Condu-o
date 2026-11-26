@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   Eye,
   ExternalLink,
+  Image as ImageIcon,
   KeyRound,
+  Maximize2,
   Megaphone,
   PauseCircle,
   PlayCircle,
@@ -25,6 +27,10 @@ import {
 import { auth, db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
+import {
+  FacebookStyleAdCard,
+  FullscreenVideoAdModal,
+} from '@/components/FacebookAdUnit';
 import { StaffPermissionsManager } from '@/components/StaffPermissionsManager';
 import { BroadcastItem, BroadcastKind } from '@/lib/types';
 import {
@@ -51,8 +57,8 @@ const KIND_OPTIONS: Array<{ value: BroadcastKind; label: string; desc: string }>
   },
   {
     value: 'ad_banner',
-    label: 'Anúncio Banner (10s / 15min)',
-    desc: 'Destaque visual no topo abaixo da barra superior.',
+    label: 'Anúncio Banner Facebook (10s / 15min)',
+    desc: 'Cartão patrocinado no estilo Facebook abaixo da barra superior.',
   },
   {
     value: 'ad_audio',
@@ -61,8 +67,8 @@ const KIND_OPTIONS: Array<{ value: BroadcastKind; label: string; desc: string }>
   },
   {
     value: 'ad_video',
-    label: 'Anúncio de Vídeo (MP4 ou YouTube)',
-    desc: 'Miniatura de vídeo contida e segura no topo e notificações.',
+    label: 'Anúncio de Vídeo em Tela Inteira (Modelo Facebook)',
+    desc: 'Reprodução em tela cheia com pré-visualização limpa e sem definições ou spoilers do site de origem.',
   },
 ];
 
@@ -99,6 +105,9 @@ export default function DonoAnunciosPage() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
+  const [previewModalAd, setPreviewModalAd] = useState<BroadcastItem | null>(
+    null
+  );
 
   const canAccess = isOwner || canAnnounce;
 
@@ -220,8 +229,36 @@ export default function DonoAnunciosPage() {
     setFeedback(`A pré-visualizar "${item.title}" no topo abaixo da topbar (${item.durationSeconds}s).`);
   };
 
+  const draftPreviewAd: BroadcastItem = {
+    id: 'draft_preview',
+    kind,
+    title: title.trim() || 'Aprende o Código de Estrada com Simulados ao Vivo',
+    body:
+      body.trim() ||
+      'Prepara-te para o exame oficial de condução em Angola com perguntas geradas em tempo real.',
+    linkUrl: linkUrl.trim() || undefined,
+    linkLabel: linkLabel.trim() || 'Saber Mais',
+    mediaUrl: mediaUrl.trim() || undefined,
+    aiGenerated,
+    active: true,
+    showInBanner,
+    durationSeconds,
+    cooldownMinutes,
+    createdByUid: user?.uid || 'owner',
+    createdByEmail: user?.email || APP_OWNER_EMAIL,
+    createdAt: null,
+    updatedAt: null,
+  };
+
   return (
     <AppShell title={isOwner ? 'Anúncios & Notificações (Dono)' : 'Anúncios & Notificações'}>
+      {previewModalAd && (
+        <FullscreenVideoAdModal
+          ad={previewModalAd}
+          isPreview
+          onClose={() => setPreviewModalAd(null)}
+        />
+      )}
       <div className="space-y-6 min-w-0">
         <div className="bg-[#111520] border border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
@@ -419,17 +456,21 @@ export default function DonoAnunciosPage() {
               </div>
             </div>
 
-            {(kind === 'ad_audio' || kind === 'ad_video') && (
+            {(kind === 'ad_audio' || kind === 'ad_video' || kind === 'ad_banner') && (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
                   {kind === 'ad_audio' ? (
                     <Volume2 className="w-3.5 h-3.5 text-sky-400" />
+                  ) : kind === 'ad_banner' ? (
+                    <ImageIcon className="w-3.5 h-3.5 text-[#1877F2]" />
                   ) : (
                     <Video className="w-3.5 h-3.5 text-red-400" />
                   )}
                   {kind === 'ad_audio'
                     ? 'URL do Áudio MP3/WAV (deixa vazio para usar Voz IA Portuguesa)'
-                    : 'URL do Vídeo MP4/WebM ou Link do YouTube'}
+                    : kind === 'ad_banner'
+                      ? 'URL da Imagem do Banner (opcional)'
+                      : 'URL do Vídeo (exibido em tela inteira sem mostrar o site de origem)'}
                 </label>
                 <input
                   type="text"
@@ -439,7 +480,9 @@ export default function DonoAnunciosPage() {
                   placeholder={
                     kind === 'ad_audio'
                       ? 'https://exemplo.com/audio.mp3 (opcional)'
-                      : 'https://www.youtube.com/watch?v=... ou .mp4'
+                      : kind === 'ad_banner'
+                        ? 'https://exemplo.com/imagem-anuncio.jpg (opcional)'
+                        : 'https://... (MP4 direto ou link do vídeo)'
                   }
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
@@ -488,19 +531,63 @@ export default function DonoAnunciosPage() {
               </span>
             </label>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold cursor-pointer"
-            >
-              {saving
-                ? 'A publicar em tempo real...'
-                : 'Publicar Notificação / Anúncio Agora'}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              {(kind === 'ad_video' || kind === 'ad_banner') && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    kind === 'ad_video'
+                      ? setPreviewModalAd(draftPreviewAd)
+                      : handleTestLiveBanner(draftPreviewAd)
+                  }
+                  className="min-h-[48px] px-4 rounded-xl bg-[#1877F2]/20 hover:bg-[#1877F2]/30 border border-[#1877F2]/50 text-sky-200 text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                  {kind === 'ad_video'
+                    ? 'Pré-visualizar Tela Cheia'
+                    : 'Pré-visualizar no Topo'}
+                </button>
+              )}
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 min-h-[48px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold cursor-pointer"
+              >
+                {saving
+                  ? 'A publicar em tempo real...'
+                  : 'Publicar Notificação / Anúncio Agora'}
+              </button>
+            </div>
           </form>
 
-          {/* Active & Past Broadcasts List */}
-          <div className="lg:col-span-6 bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 min-w-0">
+          {/* Live Facebook Preview + Active & Past Broadcasts List */}
+          <div className="lg:col-span-6 space-y-5 min-w-0">
+            {(kind === 'ad_banner' || kind === 'ad_video') && (
+              <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-3 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-white">
+                    Pré-visualização (Modelo Facebook)
+                  </h3>
+                  {kind === 'ad_video' && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModalAd(draftPreviewAd)}
+                      className="px-3 py-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      Abrir Tela Inteira
+                    </button>
+                  )}
+                </div>
+                <FacebookStyleAdCard
+                  ad={draftPreviewAd}
+                  onOpenFullscreen={(ad) => setPreviewModalAd(ad)}
+                />
+              </div>
+            )}
+
+            <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 min-w-0">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white">
                 Publicações Definidas ({broadcasts.length})
@@ -558,13 +645,23 @@ export default function DonoAnunciosPage() {
                       )}
 
                       <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {item.kind === 'ad_video' && (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewModalAd(item)}
+                            className="px-3 py-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            Tela Cheia
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleTestLiveBanner(item)}
                           className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Eye className="w-3.5 h-3.5" />
-                          Testar 10s
+                          Testar {item.durationSeconds}s
                         </button>
                         <button
                           type="button"
@@ -602,6 +699,7 @@ export default function DonoAnunciosPage() {
                 })}
               </div>
             )}
+            </div>
           </div>
         </div>
           </>

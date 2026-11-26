@@ -8,17 +8,16 @@ import {
   Pause,
   Play,
   Sparkles,
-  Video,
   Volume2,
   X,
 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { BroadcastItem } from '@/lib/types';
+import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 import {
-  extractYouTubeEmbedUrl,
-  isInternalPath,
-  sanitizeSafeUrl,
-} from '@/lib/url-safety';
+  FacebookStyleAdCard,
+  FullscreenVideoAdModal,
+} from './FacebookAdUnit';
 
 const LS_LAST_SHOWN = 'escola_ad_last_shown_at';
 const LS_CURSOR = 'escola_ad_cursor';
@@ -54,12 +53,12 @@ export function AdBroadcastBanner({
     [broadcasts]
   );
   const [activeAd, setActiveAd] = useState<BroadcastItem | null>(null);
+  const [previewVideoAd, setPreviewVideoAd] = useState<BroadcastItem | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(10);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  const videoElRef = useRef<HTMLVideoElement | null>(null);
 
   const stopAllMedia = useCallback(() => {
     if (audioElRef.current) {
@@ -69,9 +68,6 @@ export function AdBroadcastBanner({
     if (ttsAudioRef.current) {
       ttsAudioRef.current.pause();
       ttsAudioRef.current = null;
-    }
-    if (videoElRef.current) {
-      videoElRef.current.pause();
     }
     setAudioPlaying(false);
   }, []);
@@ -87,7 +83,7 @@ export function AdBroadcastBanner({
     setActiveAd(null);
   }, [stopAllMedia]);
 
-  // Listen for owner instant preview event
+  // Listen for owner instant preview events (timed banner/fullscreen OR manual fullscreen preview)
   useEffect(() => {
     const onPreview = (ev: Event) => {
       const custom = ev as CustomEvent<BroadcastItem>;
@@ -108,17 +104,31 @@ export function AdBroadcastBanner({
       setActiveAd(custom.detail);
       setSecondsLeft(dur);
     };
+
+    const onFullscreenPreview = (ev: Event) => {
+      const custom = ev as CustomEvent<BroadcastItem>;
+      if (!custom.detail) return;
+      stopAllMedia();
+      setPreviewVideoAd(custom.detail);
+    };
+
     window.addEventListener('escola:preview-ad', onPreview);
-    return () => window.removeEventListener('escola:preview-ad', onPreview);
+    window.addEventListener('escola:preview-fullscreen-video', onFullscreenPreview);
+    return () => {
+      window.removeEventListener('escola:preview-ad', onPreview);
+      window.removeEventListener(
+        'escola:preview-fullscreen-video',
+        onFullscreenPreview
+      );
+    };
   }, [stopAllMedia]);
 
-  // Schedule ad selection respecting 10s display & 15-minute cooldown
+  // Schedule ad selection respecting duration & 15-minute cooldown
   useEffect(() => {
     if (bannerPool.length === 0) return;
 
     const evaluateSchedule = () => {
       try {
-        // Check if an active 10s window is currently running across route changes
         const rawActive = localStorage.getItem(LS_ACTIVE_AD);
         if (rawActive) {
           const parsed = JSON.parse(rawActive) as StoredActiveWindow;
@@ -165,7 +175,7 @@ export function AdBroadcastBanner({
     };
   }, [bannerPool]);
 
-  // 1-second countdown ticker while an ad is visible
+  // 1-second countdown ticker while a scheduled ad is visible
   useEffect(() => {
     if (!activeAd) return;
     const id = setInterval(() => {
@@ -181,7 +191,6 @@ export function AdBroadcastBanner({
     return () => clearInterval(id);
   }, [activeAd, dismissAd]);
 
-  // Stop media on unmount
   useEffect(() => {
     return () => stopAllMedia();
   }, [stopAllMedia]);
@@ -229,13 +238,57 @@ export function AdBroadcastBanner({
     }
   };
 
+  // Manual full-screen preview takes precedence if open
+  if (previewVideoAd) {
+    return (
+      <FullscreenVideoAdModal
+        ad={previewVideoAd}
+        isPreview
+        onClose={() => setPreviewVideoAd(null)}
+      />
+    );
+  }
+
   if (!activeAd) return null;
 
+  const totalDur = Math.min(Math.max(activeAd.durationSeconds || 10, 5), 60);
+
+  // Video ads open directly in full screen with zero host settings or spoilers
+  if (activeAd.kind === 'ad_video') {
+    return (
+      <FullscreenVideoAdModal
+        ad={activeAd}
+        secondsLeft={secondsLeft}
+        totalDuration={totalDur}
+        onClose={dismissAd}
+      />
+    );
+  }
+
+  // Banner ads use the Facebook Sponsored Ad format below the topbar
+  if (activeAd.kind === 'ad_banner') {
+    return (
+      <div
+        role="region"
+        aria-label="Anúncio Patrocinado"
+        className="w-full bg-[#090D16] border-b border-white/[0.08] py-3 px-3 sm:px-6 lg:px-8 z-10"
+      >
+        <div className="max-w-3xl mx-auto">
+          <FacebookStyleAdCard
+            ad={activeAd}
+            compact
+            secondsLeft={secondsLeft}
+            totalDuration={totalDur}
+            onDismiss={dismissAd}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Informative, Link, and Audio ads remain sleek compact strips below topbar
   const safeLink = sanitizeSafeUrl(activeAd.linkUrl);
   const safeMedia = sanitizeSafeUrl(activeAd.mediaUrl);
-  const ytEmbed =
-    activeAd.kind === 'ad_video' ? extractYouTubeEmbedUrl(safeMedia) : null;
-  const totalDur = Math.min(Math.max(activeAd.durationSeconds || 10, 5), 60);
   const progressPct = Math.max(0, Math.min(100, (secondsLeft / totalDur) * 100));
 
   return (
@@ -249,8 +302,6 @@ export function AdBroadcastBanner({
           <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
             {activeAd.kind === 'ad_audio' ? (
               <Volume2 className="w-4 h-4" />
-            ) : activeAd.kind === 'ad_video' ? (
-              <Video className="w-4 h-4" />
             ) : activeAd.aiGenerated ? (
               <Sparkles className="w-4 h-4" />
             ) : (
@@ -277,7 +328,6 @@ export function AdBroadcastBanner({
           </div>
         </div>
 
-        {/* Optional Audio / Video Media (strictly constrained) */}
         {activeAd.kind === 'ad_audio' && (
           <div className="flex items-center gap-2 shrink-0 max-w-full">
             {safeMedia ? (
@@ -309,30 +359,6 @@ export function AdBroadcastBanner({
           </div>
         )}
 
-        {activeAd.kind === 'ad_video' && safeMedia && (
-          <div className="w-40 sm:w-52 aspect-video rounded-lg overflow-hidden bg-black border border-white/10 shrink-0">
-            {ytEmbed ? (
-              <iframe
-                src={ytEmbed}
-                title={activeAd.title}
-                className="w-full h-full"
-                allow="autoplay; encrypted-media"
-                allowFullScreen
-              />
-            ) : (
-              <video
-                ref={videoElRef}
-                src={safeMedia}
-                controls
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-            )}
-          </div>
-        )}
-
-        {/* Clickable CTA + X Close Button */}
         <div className="flex items-center justify-end gap-2 shrink-0">
           {safeLink &&
             (isInternalPath(safeLink) ? (
@@ -367,7 +393,6 @@ export function AdBroadcastBanner({
         </div>
       </div>
 
-      {/* 10s visual progress indicator */}
       <div className="h-0.5 w-full bg-white/10">
         <div
           className="h-full bg-amber-400 transition-all duration-1000 linear"

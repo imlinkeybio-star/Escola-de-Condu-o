@@ -31,6 +31,10 @@ import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
 import { LiveTrendSvgChart } from '@/components/LivePerformanceCharts';
+import {
+  FacebookStyleAdCard,
+  FullscreenVideoAdModal,
+} from '@/components/FacebookAdUnit';
 import { BroadcastItem, CompetitionRoom, UserResult } from '@/lib/types';
 import { findRoomByCode } from '@/lib/firestore-service';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
@@ -55,6 +59,7 @@ export default function DashboardPage() {
   const [results, setResults] = useState<UserResult[]>([]);
   const [inlineAds, setInlineAds] = useState<BroadcastItem[]>([]);
   const [dismissedInlineId, setDismissedInlineId] = useState<string | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<BroadcastItem | null>(null);
   const [codeInput, setCodeInput] = useState('');
   const [codeError, setCodeError] = useState('');
 
@@ -180,6 +185,13 @@ export default function DashboardPage() {
 
   return (
     <AppShell title="Dashboard Principal">
+      {previewVideo && (
+        <FullscreenVideoAdModal
+          ad={previewVideo}
+          isPreview
+          onClose={() => setPreviewVideo(null)}
+        />
+      )}
       <div className="space-y-6 min-w-0">
         {/* Hero Banner */}
         <section className="relative rounded-2xl overflow-hidden border border-white/10 min-h-[200px] sm:min-h-[240px] flex items-end">
@@ -457,48 +469,57 @@ export default function DashboardPage() {
             </Link>
 
             {/* Non-intrusive inline announcement/ad spotlight */}
-            {inlineSpotlight && (
-              <div className="rounded-2xl bg-[#111626] border border-amber-500/30 p-4 space-y-2 relative min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setDismissedInlineId(inlineSpotlight.id)}
-                  aria-label="Fechar destaque"
-                  className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 pr-8">
-                  <Megaphone className="w-3.5 h-3.5 shrink-0" />
-                  <span>Comunicado Oficial</span>
+            {inlineSpotlight &&
+              (inlineSpotlight.kind === 'ad_banner' ||
+              inlineSpotlight.kind === 'ad_video' ? (
+                <FacebookStyleAdCard
+                  ad={inlineSpotlight}
+                  compact
+                  onDismiss={() => setDismissedInlineId(inlineSpotlight.id)}
+                  onOpenFullscreen={(ad) => setPreviewVideo(ad)}
+                />
+              ) : (
+                <div className="rounded-2xl bg-[#111626] border border-amber-500/30 p-4 space-y-2 relative min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setDismissedInlineId(inlineSpotlight.id)}
+                    aria-label="Fechar destaque"
+                    className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 pr-8">
+                    <Megaphone className="w-3.5 h-3.5 shrink-0" />
+                    <span>Comunicado Oficial</span>
+                  </div>
+                  <p className="text-sm font-bold text-white pr-6 break-words">
+                    {inlineSpotlight.title}
+                  </p>
+                  <p className="text-xs text-slate-300 break-words">
+                    {inlineSpotlight.body}
+                  </p>
+                  {inlineSafeLink &&
+                    (isInternalPath(inlineSafeLink) ? (
+                      <Link
+                        href={inlineSafeLink}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
+                      >
+                        {inlineSpotlight.linkLabel || 'Ver Detalhes'}
+                        <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    ) : (
+                      <a
+                        href={inlineSafeLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
+                      >
+                        {inlineSpotlight.linkLabel || 'Abrir Link'}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    ))}
                 </div>
-                <p className="text-sm font-bold text-white pr-6 break-words">
-                  {inlineSpotlight.title}
-                </p>
-                <p className="text-xs text-slate-300 break-words">
-                  {inlineSpotlight.body}
-                </p>
-                {inlineSafeLink &&
-                  (isInternalPath(inlineSafeLink) ? (
-                    <Link
-                      href={inlineSafeLink}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
-                    >
-                      {inlineSpotlight.linkLabel || 'Ver Detalhes'}
-                      <ExternalLink className="w-3 h-3" />
-                    </Link>
-                  ) : (
-                    <a
-                      href={inlineSafeLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
-                    >
-                      {inlineSpotlight.linkLabel || 'Abrir Link'}
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  ))}
-              </div>
-            )}
+              ))}
 
             {/* Bottom Road Safety Banner */}
             <div className="rounded-2xl bg-gradient-to-r from-red-950/70 to-[#111520] border border-red-500/30 p-4 flex items-center gap-4 min-w-0">

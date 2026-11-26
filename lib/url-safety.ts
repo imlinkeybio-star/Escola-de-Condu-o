@@ -34,7 +34,13 @@ export function isInternalPath(url: string): boolean {
   return url.startsWith('/') && !url.startsWith('//');
 }
 
-export function extractYouTubeEmbedUrl(raw?: string | null): string | null {
+export interface CleanVideoSource {
+  kind: 'youtube' | 'vimeo' | 'direct' | 'iframe';
+  embedUrl: string;
+  videoId?: string;
+}
+
+export function extractYouTubeVideoId(raw?: string | null): string | null {
   const safe = sanitizeSafeUrl(raw);
   if (!safe || isInternalPath(safe)) return null;
   try {
@@ -43,19 +49,90 @@ export function extractYouTubeEmbedUrl(raw?: string | null): string | null {
     let videoId: string | null = null;
     if (host === 'youtu.be') {
       videoId = u.pathname.slice(1).split('/')[0] || null;
-    } else if (host === 'youtube.com' || host === 'm.youtube.com') {
+    } else if (
+      host === 'youtube.com' ||
+      host === 'm.youtube.com' ||
+      host === 'youtube-nocookie.com'
+    ) {
       if (u.pathname === '/watch') {
         videoId = u.searchParams.get('v');
-      } else if (u.pathname.startsWith('/embed/') || u.pathname.startsWith('/shorts/')) {
+      } else if (
+        u.pathname.startsWith('/embed/') ||
+        u.pathname.startsWith('/shorts/') ||
+        u.pathname.startsWith('/live/')
+      ) {
         videoId = u.pathname.split('/')[2] || null;
       }
     }
     if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-      return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`;
+      return videoId;
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+export function extractYouTubeEmbedUrl(raw?: string | null): string | null {
+  const videoId = extractYouTubeVideoId(raw);
+  if (!videoId) return null;
+  return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&showinfo=0&enablejsapi=1&loop=1&playlist=${videoId}`;
+}
+
+export function parseCleanVideoSource(raw?: string | null): CleanVideoSource | null {
+  const safe = sanitizeSafeUrl(raw);
+  if (!safe) return null;
+
+  const ytId = extractYouTubeVideoId(safe);
+  if (ytId) {
+    return {
+      kind: 'youtube',
+      videoId: ytId,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&showinfo=0&enablejsapi=1&loop=1&playlist=${ytId}`,
+    };
+  }
+
+  if (!isInternalPath(safe)) {
+    try {
+      const u = new URL(safe);
+      const host = u.hostname.replace(/^www\./, '').toLowerCase();
+      if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+        const parts = u.pathname.split('/').filter(Boolean);
+        const maybeId = parts[parts.length - 1];
+        if (maybeId && /^\d{4,15}$/.test(maybeId)) {
+          return {
+            kind: 'vimeo',
+            videoId: maybeId,
+            embedUrl: `https://player.vimeo.com/video/${maybeId}?autoplay=1&muted=1&controls=0&title=0&byline=0&portrait=0&dnt=1&loop=1&api=1`,
+          };
+        }
+      }
+
+      if (/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(u.pathname)) {
+        return { kind: 'direct', embedUrl: safe };
+      }
+
+      if (host.includes('firebasestorage.googleapis.com')) {
+        return { kind: 'direct', embedUrl: safe };
+      }
+
+      return { kind: 'iframe', embedUrl: safe };
+    } catch {
+      return null;
+    }
+  }
+
+  return { kind: 'direct', embedUrl: safe };
+}
+
+export function getSafeLinkHostLabel(linkUrl?: string | null): string {
+  const safe = sanitizeSafeUrl(linkUrl);
+  if (!safe || isInternalPath(safe)) return 'ESCOLA DE CONDUÇÃO LIVE';
+  try {
+    const u = new URL(safe);
+    return u.hostname.replace(/^www\./, '').toUpperCase();
+  } catch {
+    return 'ESCOLA DE CONDUÇÃO LIVE';
   }
 }
 
