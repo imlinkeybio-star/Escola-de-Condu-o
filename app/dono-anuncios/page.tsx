@@ -30,7 +30,7 @@ import {
   deleteOwnerBroadcast,
   toggleOwnerBroadcastActive,
 } from '@/lib/firestore-service';
-import { sanitizeSafeUrl } from '@/lib/url-safety';
+import { APP_OWNER_USERNAME, sanitizeSafeUrl } from '@/lib/url-safety';
 
 const KIND_OPTIONS: Array<{ value: BroadcastKind; label: string; desc: string }> = [
   {
@@ -217,7 +217,7 @@ export default function DonoAnunciosPage() {
         <div className="bg-[#111520] border border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
-              Área Reservada ao Dono da App
+              Área Reservada ao Dono da App · @{APP_OWNER_USERNAME}
             </p>
             <h2 className="font-display text-2xl font-extrabold text-white mt-0.5">
               Gestão de Notificações IA & Anúncios Multimédia

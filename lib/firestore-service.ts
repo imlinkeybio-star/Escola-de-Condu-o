@@ -32,7 +32,12 @@ import {
   UserPrivateInfo,
   UserProfile,
 } from './types';
-import { isAppOwnerEmail, sanitizeSafeUrl } from './url-safety';
+import {
+  APP_OWNER_EMAIL,
+  APP_OWNER_USERNAME,
+  isAppOwnerEmail,
+  sanitizeSafeUrl,
+} from './url-safety';
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120) || 'id';
@@ -79,6 +84,7 @@ export async function ensureUserProfile(
   if (!profileSnap.exists()) {
     const cleanName = (
       extra?.displayName ||
+      (isAppOwnerEmail(user.email) ? APP_OWNER_USERNAME : user.displayName) ||
       user.displayName ||
       user.email?.split('@')[0] ||
       'Condutor'
@@ -151,7 +157,7 @@ export async function ensureUserProfile(
 
 export async function checkIsAdmin(user: User | null): Promise<boolean> {
   if (!user) return false;
-  if (user.email === 'vitubloguista@gmail.com' && user.emailVerified) {
+  if (isAppOwnerEmail(user.email) && user.emailVerified) {
     return true;
   }
   try {
@@ -1065,7 +1071,7 @@ export async function createOwnerBroadcast(params: {
     durationSeconds: Math.min(Math.max(Math.round(params.durationSeconds ?? 10), 5), 60),
     cooldownMinutes: Math.min(Math.max(Math.round(params.cooldownMinutes ?? 15), 1), 120),
     createdByUid: user.uid,
-    createdByEmail: (user.email || 'vitubloguista@gmail.com').slice(0, 200),
+    createdByEmail: (user.email || APP_OWNER_EMAIL).slice(0, 200),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };

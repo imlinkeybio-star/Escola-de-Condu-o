@@ -1,7 +1,8 @@
-export const APP_OWNER_EMAIL = 'vitubloguista@gmail.com';
+export const APP_OWNER_EMAIL = 'kordelmauvesp@gmail.com';
+export const APP_OWNER_USERNAME = 'kordelmauve';
 
 export function isAppOwnerEmail(email?: string | null): boolean {
-  return Boolean(email && email.toLowerCase() === APP_OWNER_EMAIL);
+  return Boolean(email && email.trim().toLowerCase() === APP_OWNER_EMAIL);
 }
 
 /**
