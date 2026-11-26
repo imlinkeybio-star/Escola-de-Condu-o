@@ -30,6 +30,11 @@ export const metadata: Metadata = {
   title: 'Escola de Condução Live',
   description:
     'Plataforma multijogador em tempo real de competições sobre condução, Código de Estrada de Angola e segurança rodoviária com examinadora virtual por IA.',
+  icons: {
+    icon: '/assets/aistudio/favicon_14076ff5.png',
+    shortcut: '/assets/aistudio/favicon_14076ff5.png',
+    apple: '/assets/aistudio/favicon_14076ff5.png',
+  },
   openGraph: {
     title: 'Escola de Condução Live',
     description:

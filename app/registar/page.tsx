@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Car, LogIn, UserPlus } from 'lucide-react';
+import { ArrowLeft, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { ANGOLA_PROVINCES } from '@/lib/types';
 
@@ -84,8 +85,15 @@ export default function RegistarPage() {
             <ArrowLeft className="w-4 h-4" />
             Voltar
           </Link>
-          <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center">
-            <Car className="w-5 h-5 text-white" />
+          <div className="bg-white/95 rounded-xl px-2.5 py-1 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
+            <Image
+              src="/assets/aistudio/favicon_14076ff5.png"
+              alt="Escola de Condução Live"
+              width={72}
+              height={48}
+              className="h-10 w-auto object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
         </div>
 

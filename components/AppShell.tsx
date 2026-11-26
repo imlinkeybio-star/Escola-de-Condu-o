@@ -9,7 +9,6 @@ import {
   BarChart3,
   Bell,
   BookOpen,
-  Car,
   History,
   Home,
   LogOut,
@@ -111,16 +110,23 @@ export function AppShell({
     <div className="min-h-screen bg-[#07090F] text-slate-100 flex">
       {/* Desktop Sidebar (260px) */}
       <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#0D101A] border-r border-white/[0.08] z-30">
-        <div className="h-16 px-5 flex items-center gap-3 border-b border-white/[0.08]">
+        <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.08]">
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center shrink-0">
-              <Car className="w-5 h-5 text-white" />
+            <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 shrink-0 flex items-center justify-center">
+              <Image
+                src="/assets/aistudio/favicon_14076ff5.png"
+                alt="Escola de Condução Live"
+                width={54}
+                height={36}
+                className="h-8 w-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div className="min-w-0">
-              <span className="font-display text-lg font-extrabold tracking-wide text-white block leading-none whitespace-nowrap">
+              <span className="font-display text-base font-extrabold tracking-wide text-white block leading-none whitespace-nowrap truncate">
                 ESCOLA DE CONDUÇÃO
               </span>
-              <span className="text-[11px] font-bold tracking-widest text-red-500 uppercase">
+              <span className="text-[10px] font-bold tracking-widest text-red-500 uppercase">
                 LIVE ANGOLA
               </span>
             </div>
@@ -315,10 +321,17 @@ export function AppShell({
           <div className="relative w-72 max-w-[85vw] bg-[#0D101A] border-r border-white/10 h-full flex flex-col z-10 p-4">
             <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
-                  <Car className="w-4 h-4 text-white" />
+                <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
+                  <Image
+                    src="/assets/aistudio/favicon_14076ff5.png"
+                    alt="Escola de Condução Live"
+                    width={54}
+                    height={36}
+                    className="h-8 w-auto object-contain"
+                    referrerPolicy="no-referrer"
+                  />
                 </div>
-                <span className="font-display text-lg font-bold text-white">
+                <span className="font-display text-base font-bold text-white">
                   ESCOLA DE CONDUÇÃO
                 </span>
               </div>

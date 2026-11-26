@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   Award,
-  Car,
   LogIn,
   Play,
   Radio,
@@ -67,12 +66,20 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
           <Link
             href="/"
-            className="flex items-center gap-2.5 whitespace-nowrap shrink-0"
+            className="flex items-center gap-3 whitespace-nowrap shrink-0"
           >
-            <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
-              <Car className="w-4 h-4 text-white" />
+            <div className="bg-white/95 rounded-xl px-2 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
+              <Image
+                src="/assets/aistudio/favicon_14076ff5.png"
+                alt="Escola de Condução Live"
+                width={60}
+                height={40}
+                className="h-9 w-auto object-contain"
+                priority
+                referrerPolicy="no-referrer"
+              />
             </div>
-            <span className="font-display text-xl font-extrabold tracking-wide text-white">
+            <span className="font-display text-lg sm:text-xl font-extrabold tracking-wide text-white hidden sm:inline">
               ESCOLA DE CONDUÇÃO LIVE
             </span>
           </Link>
