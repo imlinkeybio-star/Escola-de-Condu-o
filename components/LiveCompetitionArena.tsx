@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -11,11 +11,12 @@ import {
   Copy,
   Crown,
   Info,
-  Medal,
+  Lock,
   Play,
   RotateCcw,
   Share2,
   ShieldCheck,
+  Sparkles,
   Trophy,
   Users,
   Volume2,
@@ -35,19 +36,19 @@ import {
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import {
   CompetitionRoom,
+  ParticipantStatus,
   RoomAnswer,
   RoomParticipant,
   RoomQuestion,
   RoomRevealedAnswer,
 } from '@/lib/types';
 import {
+  advancePlayerQuestion,
   fetchServerTimeOffsetMs,
-  finishCompetitionRoom,
+  finishPlayerCompetition,
   joinCompetitionRoom,
-  recordMyCompetitionResult,
-  revealCompetitionRound,
-  scoreParticipantForRound,
-  startCompetitionRound,
+  revealAndScorePlayerRound,
+  startPlayerGame,
   submitPlayerAnswer,
 } from '@/lib/firestore-service';
 import { useAuth } from './AuthProvider';
@@ -59,25 +60,57 @@ import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_17956151
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
 
+function getParticipantStatusLabel(status?: ParticipantStatus): {
+  label: string;
+  className: string;
+} {
+  switch (status) {
+    case 'FINISHED':
+      return {
+        label: 'Concluiu',
+        className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      };
+    case 'PLAYING':
+    case 'ANSWER_REVEAL':
+      return {
+        label: 'A jogar',
+        className: 'bg-red-500/15 text-red-300 border-red-500/30',
+      };
+    default:
+      return {
+        label: 'Em espera',
+        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      };
+  }
+}
+
 export function LiveCompetitionArena({ roomId }: { roomId: string }) {
-  const { user, profile, privateInfo, isAdmin } = useAuth();
+  const { user, profile, privateInfo } = useAuth();
   const [room, setRoom] = useState<CompetitionRoom | null>(null);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
-  const [currentQuestionState, setCurrentQuestionState] = useState<RoomQuestion | null>(null);
-  const [roundAnswersState, setRoundAnswersState] = useState<RoomAnswer[]>([]);
-  const [revealedState, setRevealedState] = useState<RoomRevealedAnswer | null>(null);
+  const [currentQuestionState, setCurrentQuestionState] =
+    useState<RoomQuestion | null>(null);
+  const [myAnswerState, setMyAnswerState] = useState<RoomAnswer | null>(null);
+  const [revealedState, setRevealedState] = useState<RoomRevealedAnswer | null>(
+    null
+  );
   const [allQuestions, setAllQuestions] = useState<RoomQuestion[]>([]);
-  const [allRevealed, setAllRevealed] = useState<Record<number, RoomRevealedAnswer>>({});
-  const [allMyAnswers, setAllMyAnswers] = useState<Record<number, RoomAnswer>>({});
+  const [allRevealed, setAllRevealed] = useState<
+    Record<number, RoomRevealedAnswer>
+  >({});
+  const [allMyAnswers, setAllMyAnswers] = useState<Record<number, RoomAnswer>>(
+    {}
+  );
 
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [revealTickState, setRevealTickState] = useState<{ qIndex: number; left: number }>({
-    qIndex: -1,
-    left: 8,
-  });
+  const [revealTickState, setRevealTickState] = useState<{
+    qIndex: number;
+    left: number;
+  }>({ qIndex: -1, left: 8 });
   const [submitting, setSubmitting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -86,7 +119,6 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   const spokenQuestionRef = useRef<string>('');
   const spokenRevealRef = useRef<string>('');
   const spokenFinishRef = useRef<boolean>(false);
-  const finalizedRef = useRef<boolean>(false);
 
   const {
     voiceEnabled,
@@ -96,22 +128,17 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     speak,
   } = useVoiceExaminer(privateInfo?.voiceEnabled ?? true);
 
-  // Sync authoritative server clock offset on mount
   useEffect(() => {
     void fetchServerTimeOffsetMs().then(setServerOffsetMs);
   }, []);
 
-  // Join room automatically once profile is loaded
   useEffect(() => {
     if (!user || !profile || !roomId) return;
     void joinCompetitionRoom(roomId, profile).catch((err) => {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Erro ao entrar na sala.'
-      );
+      setErrorMsg(err instanceof Error ? err.message : 'Erro ao entrar na sala.');
     });
   }, [user, profile, roomId]);
 
-  // Listen to room document
   useEffect(() => {
     if (!user || !roomId) return;
     const unsub = onSnapshot(
@@ -128,7 +155,6 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     return () => unsub();
   }, [user, roomId]);
 
-  // Listen to participants sorted by score descending
   useEffect(() => {
     if (!user || !roomId) return;
     const q = query(
@@ -151,14 +177,21 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     return () => unsub();
   }, [user, roomId]);
 
-  const qIndex = room?.currentQuestionIndex ?? -1;
+  const myParticipant = participants.find((p) => p.uid === user?.uid) || null;
+  const myStatus: ParticipantStatus = myParticipant?.status || 'WAITING';
+  const qIndex = myParticipant?.currentQuestionIndex ?? -1;
+  const finishedCount =
+    typeof room?.finishedCount === 'number' ? room.finishedCount : 0;
+  const isRoomClosed =
+    room?.status === 'FINISHED' || finishedCount >= 100;
 
-  // Listen to current public question
+  // Listen to this player's current AI-generated question
   useEffect(() => {
     if (!user || !roomId || qIndex < 0) return;
-    const qPath = `rooms/${roomId}/questions/${qIndex}`;
+    const qDocId = `${user.uid}_${qIndex}`;
+    const qPath = `rooms/${roomId}/player_questions/${qDocId}`;
     const unsub = onSnapshot(
-      doc(db, 'rooms', roomId, 'questions', String(qIndex)),
+      doc(db, 'rooms', roomId, 'player_questions', qDocId),
       (snap) => {
         setCurrentQuestionState(
           snap.exists() ? (snap.data() as RoomQuestion) : null
@@ -169,31 +202,28 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     return () => unsub();
   }, [user, roomId, qIndex]);
 
-  // Listen to answers for the active round
+  // Listen to this player's answer for current round
   useEffect(() => {
     if (!user || !roomId || qIndex < 0) return;
-    const q = query(
-      collection(db, 'rooms', roomId, 'answers'),
-      where('roomId', '==', roomId),
-      where('questionIndex', '==', qIndex)
-    );
+    const ansId = `${qIndex}_${user.uid}`;
     const unsub = onSnapshot(
-      q,
+      doc(db, 'rooms', roomId, 'answers', ansId),
       (snap) => {
-        setRoundAnswersState(snap.docs.map((d) => d.data() as RoomAnswer));
+        setMyAnswerState(snap.exists() ? (snap.data() as RoomAnswer) : null);
       },
       (err) =>
-        handleFirestoreError(err, OperationType.LIST, `rooms/${roomId}/answers`)
+        handleFirestoreError(err, OperationType.GET, `rooms/${roomId}/answers/${ansId}`)
     );
     return () => unsub();
   }, [user, roomId, qIndex]);
 
-  // Listen to revealed answer for current round
+  // Listen to this player's revealed answer for current round
   useEffect(() => {
     if (!user || !roomId || qIndex < 0) return;
-    const rPath = `rooms/${roomId}/revealed/${qIndex}`;
+    const rDocId = `${user.uid}_${qIndex}`;
+    const rPath = `rooms/${roomId}/player_revealed/${rDocId}`;
     const unsub = onSnapshot(
-      doc(db, 'rooms', roomId, 'revealed', String(qIndex)),
+      doc(db, 'rooms', roomId, 'player_revealed', rDocId),
       (snap) => {
         setRevealedState(
           snap.exists() ? (snap.data() as RoomRevealedAnswer) : null
@@ -208,242 +238,236 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     qIndex >= 0 && currentQuestionState?.questionIndex === qIndex
       ? currentQuestionState
       : null;
-  const roundAnswers = useMemo(
-    () =>
-      qIndex >= 0
-        ? roundAnswersState.filter((a) => a.questionIndex === qIndex)
-        : [],
-    [roundAnswersState, qIndex]
-  );
+  const myAnswer =
+    qIndex >= 0 && myAnswerState?.questionIndex === qIndex
+      ? myAnswerState
+      : null;
   const revealed =
     qIndex >= 0 && revealedState?.questionIndex === qIndex
       ? revealedState
       : null;
 
-  const isHost = Boolean(user && room && room.hostId === user.uid);
-  const myAnswer = useMemo(
-    () => roundAnswers.find((a) => a.uid === user?.uid) || null,
-    [roundAnswers, user?.uid]
-  );
-
-  // Authoritative countdown ticker during PLAYING
+  // Authoritative countdown ticker during player's PLAYING state
   useEffect(() => {
-    if (room?.status !== 'PLAYING' || !room.questionEndsAtMs) return;
+    if (
+      myStatus !== 'PLAYING' ||
+      isRoomClosed ||
+      !myParticipant?.questionEndsAtMs
+    ) {
+      return;
+    }
     const timerId = setInterval(() => {
       setNowMs(Date.now());
     }, 250);
     return () => clearInterval(timerId);
-  }, [room?.status, room?.questionEndsAtMs]);
+  }, [myStatus, isRoomClosed, myParticipant?.questionEndsAtMs]);
 
   const remainingSeconds =
-    room?.status === 'PLAYING' && room.questionEndsAtMs
+    myStatus === 'PLAYING' && !isRoomClosed && myParticipant?.questionEndsAtMs
       ? Math.max(
           0,
-          Math.ceil((room.questionEndsAtMs - (nowMs + serverOffsetMs)) / 1000)
+          Math.ceil(
+            (myParticipant.questionEndsAtMs - (nowMs + serverOffsetMs)) / 1000
+          )
         )
       : 0;
 
-  // Auto-reveal when server timer expires or all participants answered
+  // Auto-reveal & score when player timer expires (or right after answering)
   useEffect(() => {
     if (
       !room ||
-      room.status !== 'PLAYING' ||
+      !myParticipant ||
+      myStatus !== 'PLAYING' ||
+      isRoomClosed ||
       !currentQuestion ||
       qIndex < 0
     ) {
       return;
     }
 
-    const allAnswered =
-      participants.length > 0 && roundAnswers.length >= participants.length;
     const serverNow = Date.now() + serverOffsetMs;
-    const expiredForHost =
-      room.questionEndsAtMs !== undefined && serverNow >= room.questionEndsAtMs;
-    const expiredForFallback =
-      room.questionEndsAtMs !== undefined &&
-      serverNow >= room.questionEndsAtMs + 3500;
+    const expired =
+      myParticipant.questionEndsAtMs !== undefined &&
+      serverNow >= myParticipant.questionEndsAtMs;
+    const shouldReveal = Boolean(myAnswer) || expired;
 
-    const shouldTrigger =
-      ((isHost || isAdmin) && (allAnswered || expiredForHost)) ||
-      (!isHost && expiredForFallback);
-
-    if (shouldTrigger && revealTriggeredForRef.current !== qIndex) {
+    if (shouldReveal && revealTriggeredForRef.current !== qIndex) {
       revealTriggeredForRef.current = qIndex;
-      void revealCompetitionRound({
+      void revealAndScorePlayerRound({
         room,
+        participant: myParticipant,
         question: currentQuestion,
-        allAnswered,
       });
     }
   }, [
     room,
+    myParticipant,
+    myStatus,
+    isRoomClosed,
     currentQuestion,
     qIndex,
-    participants.length,
-    roundAnswers.length,
+    myAnswer,
     remainingSeconds,
     serverOffsetMs,
-    isHost,
-    isAdmin,
   ]);
 
-  // Score current participant atomically once revealed arrives
+  // Voice Examiner narration on new question
   useEffect(() => {
-    if (!room || !revealed || !user || room.status !== 'ANSWER_REVEAL') return;
-    const me = participants.find((p) => p.uid === user.uid);
-    if (!me || me.lastScoredQuestionIndex >= revealed.questionIndex) return;
-
-    void scoreParticipantForRound({
-      roomId: room.roomId,
-      uid: user.uid,
-      questionIndex: revealed.questionIndex,
-      correctIndex: revealed.correctIndex,
-      pointsPerCorrect: room.pointsPerCorrect,
-    });
-  }, [room, revealed, user, participants]);
-
-  // Voice Examiner automatic narration on new question
-  useEffect(() => {
-    if (room?.status !== 'PLAYING' || !currentQuestion) return;
+    if (myStatus !== 'PLAYING' || isRoomClosed || !currentQuestion || !room) {
+      return;
+    }
     const key = `${room.roomId}_${currentQuestion.questionIndex}`;
     if (spokenQuestionRef.current === key) return;
     spokenQuestionRef.current = key;
 
     const narration = `Pergunta ${currentQuestion.questionIndex + 1} de ${room.totalQuestions}. ${currentQuestion.questionText}. Opção A: ${currentQuestion.options[0]}. Opção B: ${currentQuestion.options[1]}. Opção C: ${currentQuestion.options[2]}. Opção D: ${currentQuestion.options[3]}.`;
     void speak(narration);
-  }, [room?.status, room?.roomId, room?.totalQuestions, currentQuestion, speak]);
+  }, [myStatus, isRoomClosed, room, currentQuestion, speak]);
 
   // Voice Examiner narration on answer reveal
   useEffect(() => {
-    if (room?.status !== 'ANSWER_REVEAL' || !revealed || !currentQuestion) return;
+    if (
+      myStatus !== 'ANSWER_REVEAL' ||
+      isRoomClosed ||
+      !revealed ||
+      !currentQuestion ||
+      !room
+    ) {
+      return;
+    }
     const key = `${room.roomId}_reveal_${revealed.questionIndex}`;
     if (spokenRevealRef.current === key) return;
     spokenRevealRef.current = key;
 
     const correctLetter = OPTION_LETTERS[revealed.correctIndex] || 'A';
     const correctText = currentQuestion.options[revealed.correctIndex] || '';
-    const narration = `Tempo terminado! A resposta correta é a opção ${correctLetter}: ${correctText}. ${revealed.explanation}`;
+    const narration = `A resposta correta é a opção ${correctLetter}: ${correctText}. ${revealed.explanation}`;
     void speak(narration);
-  }, [room?.status, room?.roomId, revealed, currentQuestion, speak]);
+  }, [myStatus, isRoomClosed, room, revealed, currentQuestion, speak]);
 
-  // Auto-advance countdown during ANSWER_REVEAL (8s) for autonomous AI host flow
+  // Advance to next question or finish ONLY for this player
   const handleAdvanceRound = useCallback(async () => {
-    if (!room || (!isHost && !isAdmin)) return;
+    if (!room || !profile || !myParticipant || advancing) return;
+    if (myParticipant.status !== 'ANSWER_REVEAL') return;
     if (advanceTriggeredForRef.current === qIndex) return;
     advanceTriggeredForRef.current = qIndex;
+    setAdvancing(true);
+    setErrorMsg(null);
 
-    const nextIndex = qIndex + 1;
-    if (nextIndex < room.totalQuestions) {
-      await startCompetitionRound(room.roomId, nextIndex, room.timePerQuestion);
-    } else {
-      const qSnaps = await getDocs(
-        query(
-          collection(db, 'rooms', room.roomId, 'questions'),
-          where('roomId', '==', room.roomId)
-        )
+    try {
+      const nextIndex = qIndex + 1;
+      if (nextIndex < room.totalQuestions) {
+        await advancePlayerQuestion(room, nextIndex);
+      } else {
+        await finishPlayerCompetition({ room, profile });
+      }
+    } catch (err) {
+      advanceTriggeredForRef.current = -1;
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : 'Erro ao avançar na competição.'
       );
-      const cats = Array.from(
-        new Set(
-          qSnaps.docs.map((d) => String(d.data().category || 'Código de Estrada'))
-        )
-      );
-      await finishCompetitionRoom({ room, participants, categories: cats });
+    } finally {
+      setAdvancing(false);
     }
-  }, [room, isHost, isAdmin, qIndex, participants]);
+  }, [room, profile, myParticipant, advancing, qIndex]);
 
+  // 8-second auto-advance countdown during ANSWER_REVEAL
   useEffect(() => {
-    if (room?.status !== 'ANSWER_REVEAL') return;
+    if (myStatus !== 'ANSWER_REVEAL' || isRoomClosed) return;
     let left = 8;
     const id = setInterval(() => {
       left -= 1;
       setRevealTickState({ qIndex, left: Math.max(0, left) });
       if (left <= 0) {
         clearInterval(id);
-        if (isHost || isAdmin) {
-          void handleAdvanceRound();
-        }
+        void handleAdvanceRound();
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [room?.status, qIndex, isHost, isAdmin, handleAdvanceRound]);
+  }, [myStatus, isRoomClosed, qIndex, handleAdvanceRound]);
 
   const revealCountdown =
-    room?.status === 'ANSWER_REVEAL' && revealTickState.qIndex === qIndex
+    myStatus === 'ANSWER_REVEAL' && revealTickState.qIndex === qIndex
       ? revealTickState.left
       : 8;
 
-  // Load final educational review & persist results when FINISHED
+  // Load this student's educational review when their participation finishes or room hits 100 finishers
   useEffect(() => {
-    if (!room || room.status !== 'FINISHED' || !profile) return;
+    if (!room || !user || (!isRoomClosed && myStatus !== 'FINISHED')) return;
 
-    if (!finalizedRef.current) {
-      finalizedRef.current = true;
-      void recordMyCompetitionResult({ room, participants, profile });
-    }
-
-    if (!spokenFinishRef.current && participants.length > 0) {
+    if (myStatus === 'FINISHED' && !spokenFinishRef.current && myParticipant) {
       spokenFinishRef.current = true;
-      const winner = participants[0];
       void speak(
-        `Competição concluída! O vencedor é ${winner.displayName} com ${winner.score} pontos. Parabéns a todos os participantes!`
+        `Parabéns ${myParticipant.displayName}! Concluíste a prova com ${myParticipant.score} pontos e ${myParticipant.correctCount} respostas certas. Acompanha o ranking ao vivo!`
       );
     }
 
-    const loadReview = async () => {
-      const [qSnaps, rSnaps, aSnaps] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, 'rooms', room.roomId, 'questions'),
-            where('roomId', '==', room.roomId)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, 'rooms', room.roomId, 'revealed'),
-            where('roomId', '==', room.roomId)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, 'rooms', room.roomId, 'answers'),
-            where('roomId', '==', room.roomId)
-          )
-        ),
-      ]);
-      const qs = qSnaps.docs
-        .map((d) => d.data() as RoomQuestion)
-        .sort((a, b) => a.questionIndex - b.questionIndex);
-      setAllQuestions(qs);
+    const loadMyReview = async () => {
+      try {
+        const [qSnaps, rSnaps, aSnaps] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, 'rooms', room.roomId, 'player_questions'),
+              where('uid', '==', user.uid)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, 'rooms', room.roomId, 'player_revealed'),
+              where('uid', '==', user.uid)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, 'rooms', room.roomId, 'answers'),
+              where('roomId', '==', room.roomId)
+            )
+          ),
+        ]);
 
-      const revMap: Record<number, RoomRevealedAnswer> = {};
-      rSnaps.docs.forEach((d) => {
-        const r = d.data() as RoomRevealedAnswer;
-        revMap[r.questionIndex] = r;
-      });
-      setAllRevealed(revMap);
+        const qs = qSnaps.docs
+          .map((d) => d.data() as RoomQuestion)
+          .sort((a, b) => a.questionIndex - b.questionIndex);
+        setAllQuestions(qs);
 
-      const ansMap: Record<number, RoomAnswer> = {};
-      aSnaps.docs.forEach((d) => {
-        const a = d.data() as RoomAnswer;
-        if (a.uid === profile.uid) {
-          ansMap[a.questionIndex] = a;
-        }
-      });
-      setAllMyAnswers(ansMap);
+        const revMap: Record<number, RoomRevealedAnswer> = {};
+        rSnaps.docs.forEach((d) => {
+          const r = d.data() as RoomRevealedAnswer;
+          revMap[r.questionIndex] = r;
+        });
+        setAllRevealed(revMap);
+
+        const ansMap: Record<number, RoomAnswer> = {};
+        aSnaps.docs.forEach((d) => {
+          const a = d.data() as RoomAnswer;
+          if (a.uid === user.uid) {
+            ansMap[a.questionIndex] = a;
+          }
+        });
+        setAllMyAnswers(ansMap);
+      } catch (err) {
+        console.warn('Erro ao carregar revisão pessoal:', err);
+      }
     };
 
-    void loadReview();
-  }, [room, participants, profile, speak]);
+    void loadMyReview();
+  }, [room, user, myStatus, isRoomClosed, myParticipant, speak]);
 
-  const handleStartCompetition = async () => {
-    if (!room || (!isHost && !isAdmin)) return;
+  const handleStartMyGame = async () => {
+    if (!room || starting || isRoomClosed) return;
     setStarting(true);
     setErrorMsg(null);
+    revealTriggeredForRef.current = -1;
+    advanceTriggeredForRef.current = -1;
     try {
-      await startCompetitionRound(room.roomId, 0, room.timePerQuestion);
+      await startPlayerGame(room);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error ? err.message : 'Erro ao iniciar competição.'
+        err instanceof Error
+          ? err.message
+          : 'Erro ao gerar perguntas com a IA e iniciar jogo.'
       );
     } finally {
       setStarting(false);
@@ -455,8 +479,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       !room ||
       !user ||
       !profile ||
+      !myParticipant ||
       !currentQuestion ||
-      room.status !== 'PLAYING' ||
+      myStatus !== 'PLAYING' ||
+      isRoomClosed ||
       myAnswer ||
       submitting ||
       remainingSeconds <= 0
@@ -464,6 +490,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       return;
     }
     setSubmitting(true);
+    setErrorMsg(null);
     try {
       await submitPlayerAnswer({
         roomId: room.roomId,
@@ -504,8 +531,8 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
           Inicia sessão para entrar na competição ao vivo
         </h2>
         <p className="text-sm text-slate-400">
-          Precisas de uma conta ativa para sincronizar as respostas e pontuar no
-          ranking.
+          Precisas de uma conta ativa para receber as tuas perguntas geradas em
+          tempo real pela IA e pontuar no ranking.
         </p>
         <Link
           href={`/entrar?next=/sala/${roomId}`}
@@ -543,11 +570,12 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     );
   }
 
-  const myParticipant = participants.find((p) => p.uid === user.uid);
   const myRank = participants.findIndex((p) => p.uid === user.uid) + 1;
-  const correctInRoundCount = revealed
-    ? roundAnswers.filter((a) => a.selectedIndex === revealed.correctIndex).length
-    : 0;
+  const showFinishedOrClosedView = myStatus === 'FINISHED' || isRoomClosed;
+  const myAccuracy =
+    myParticipant && room.totalQuestions > 0
+      ? Math.round((myParticipant.correctCount / room.totalQuestions) * 100)
+      : 0;
 
   return (
     <div className="space-y-5">
@@ -561,11 +589,18 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="inline-flex items-center gap-1.5 font-bold text-emerald-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                EM DIRECTO
-              </span>
+            <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
+              {isRoomClosed ? (
+                <span className="inline-flex items-center gap-1.5 font-bold text-slate-300">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  RANKING ENCERRADO (100/100)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 font-bold text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  RANKING EM DIRECTO ({finishedCount}/100 finalistas)
+                </span>
+              )}
               <span aria-hidden="true">·</span>
               <span className="font-mono-tabular">Código {room.code}</span>
             </div>
@@ -595,7 +630,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
             </span>
           </button>
 
-          {room.status === 'PLAYING' && (
+          {myStatus === 'PLAYING' && !isRoomClosed && (
             <div
               className={`min-h-[40px] px-3.5 rounded-xl flex items-center gap-2 font-mono-tabular font-bold text-base border ${
                 remainingSeconds <= 10
@@ -604,9 +639,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               }`}
             >
               <Clock className="w-4 h-4 text-red-500" />
-              <span>
-                00:{String(remainingSeconds).padStart(2, '0')}
-              </span>
+              <span>00:{String(remainingSeconds).padStart(2, '0')}</span>
             </div>
           )}
         </div>
@@ -628,8 +661,166 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT STAGE */}
         <div className="lg:col-span-8 space-y-5">
-          {/* STATE: WAITING / STARTING */}
-          {(room.status === 'WAITING' || room.status === 'STARTING') && (
+          {/* VIEW 1: PLAYER FINISHED OR ROOM REACHED 100 FINISHERS */}
+          {showFinishedOrClosedView && (
+            <div className="space-y-6">
+              <div className="bg-[#111520] border border-amber-500/30 rounded-2xl p-6 text-center space-y-5">
+                <div className="relative w-20 h-20 mx-auto rounded-2xl overflow-hidden border border-amber-400/40">
+                  <Image
+                    src={trophyImg}
+                    alt="Resultados da Competição"
+                    fill
+                    sizes="80px"
+                    className="object-cover"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
+                    {isRoomClosed
+                      ? 'Competição Encerrada · 100/100 Finalistas'
+                      : `A Tua Prova Terminou · ${finishedCount}/100 Finalistas`}
+                  </p>
+                  <h3 className="font-display text-3xl sm:text-4xl font-extrabold text-white">
+                    {myStatus === 'FINISHED'
+                      ? `Obtiveste ${myParticipant?.score ?? 0} pontos!`
+                      : 'Ranking da Sala Encerrado'}
+                  </h3>
+                  <p className="text-sm text-slate-300 max-w-xl mx-auto">
+                    {isRoomClosed
+                      ? '100 alunos já finalizaram o jogo nesta sala. O ranking oficial foi encerrado.'
+                      : 'Esta sala fechou apenas para ti para consultares os teus resultados. Outros alunos podem continuar a jogar com novas perguntas aleatórias até completar 100 finalistas, e o ranking continua em direto.'}
+                  </p>
+                </div>
+
+                {myParticipant && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                    <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
+                      <p className="text-xs text-slate-400">Pontuação</p>
+                      <p className="font-mono-tabular text-2xl font-extrabold text-amber-400 mt-1">
+                        {myParticipant.score} pts
+                      </p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
+                      <p className="text-xs text-slate-400">Posição Atual</p>
+                      <p className="font-mono-tabular text-2xl font-extrabold text-white mt-1">
+                        #{myRank > 0 ? myRank : '-'}
+                      </p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
+                      <p className="text-xs text-slate-400">Certas / Erradas</p>
+                      <p className="font-mono-tabular text-2xl font-extrabold text-emerald-400 mt-1">
+                        {myParticipant.correctCount}/{myParticipant.wrongCount}
+                      </p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
+                      <p className="text-xs text-slate-400">Precisão</p>
+                      <p className="font-mono-tabular text-2xl font-extrabold text-sky-400 mt-1">
+                        {myAccuracy}%
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {participants.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                    {participants.slice(0, 3).map((p, idx) => (
+                      <div
+                        key={p.uid}
+                        className={`p-3.5 rounded-xl border text-center space-y-1 ${
+                          idx === 0
+                            ? 'bg-amber-500/15 border-amber-400/50'
+                            : idx === 1
+                              ? 'bg-slate-400/10 border-slate-400/30'
+                              : 'bg-orange-700/15 border-orange-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-bold">
+                          <Crown className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{idx + 1}.º Lugar</span>
+                        </div>
+                        <p className="text-sm font-bold text-white truncate">
+                          {p.displayName}
+                        </p>
+                        <p className="font-mono-tabular text-base font-extrabold text-amber-400">
+                          {p.score} pts
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <Link
+                    href="/salas"
+                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
+                  >
+                    Explorar Outras Salas
+                  </Link>
+                  <Link
+                    href="/ranking"
+                    className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
+                  >
+                    Ver Ranking Geral
+                  </Link>
+                </div>
+              </div>
+
+              {allQuestions.length > 0 && (
+                <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-4">
+                  <h4 className="text-lg font-bold text-white">
+                    Revisão das Tuas Perguntas (Código de Estrada de Angola)
+                  </h4>
+                  <div className="space-y-3">
+                    {allQuestions.map((q) => {
+                      const rev = allRevealed[q.questionIndex];
+                      const ans = allMyAnswers[q.questionIndex];
+                      const ok =
+                        rev && ans && ans.selectedIndex === rev.correctIndex;
+                      return (
+                        <div
+                          key={q.questionIndex}
+                          className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06] space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-white">
+                              {q.questionIndex + 1}. {q.questionText}
+                            </p>
+                            {rev && (
+                              <span
+                                className={`text-xs font-bold shrink-0 ${
+                                  ok ? 'text-emerald-400' : 'text-red-400'
+                                }`}
+                              >
+                                {ok ? 'Acertou' : 'Errou'}
+                              </span>
+                            )}
+                          </div>
+                          {rev && (
+                            <>
+                              <p className="text-xs text-emerald-300">
+                                Correta: {OPTION_LETTERS[rev.correctIndex]}.{' '}
+                                {q.options[rev.correctIndex]}
+                              </p>
+                              <p className="text-xs text-slate-300">
+                                {rev.explanation}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {rev.legalReference}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VIEW 2: WAITING FOR THIS STUDENT TO START */}
+          {!showFinishedOrClosedView && myStatus === 'WAITING' && (
             <div className="space-y-5">
               <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-5">
@@ -644,47 +835,53 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   </div>
                   <div className="flex-1 space-y-1.5">
                     <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                      Concurso Atual · {room.difficulty}
+                      Concurso ao Vivo · {room.difficulty} · {room.category}
                     </p>
                     <h3 className="font-display text-2xl sm:text-3xl font-bold text-white">
                       {room.title}
                     </h3>
                     <p className="text-sm text-slate-400">
                       {room.description ||
-                        'Teste os teus conhecimentos e mostra que és um condutor responsável!'}
+                        'Perguntas geradas 100% em tempo real pela IA segundo o Código de Estrada de Angola.'}
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 mt-6 pt-5 border-t border-white/[0.08] text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-white/[0.08] text-center">
                   <div>
-                    <p className="text-xs text-slate-400">Perguntas</p>
+                    <p className="text-xs text-slate-400">Perguntas IA</p>
                     <p className="font-display text-2xl font-bold text-white tabular-nums mt-0.5">
                       {room.totalQuestions}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Tempo por pergunta</p>
+                    <p className="text-xs text-slate-400">Tempo/pergunta</p>
                     <p className="font-display text-2xl font-bold text-white tabular-nums mt-0.5">
                       {room.timePerQuestion}s
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Pontos por acerto</p>
+                    <p className="text-xs text-slate-400">Pontos/acerto</p>
                     <p className="font-display text-2xl font-bold text-amber-400 tabular-nums mt-0.5">
                       +{room.pointsPerCorrect}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Finalistas</p>
+                    <p className="font-display text-2xl font-bold text-emerald-400 tabular-nums mt-0.5">
+                      {finishedCount}/100
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Online Participants Strip */}
+              {/* Waiting Participants & Share */}
               <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 text-sm font-semibold text-white">
                     <Users className="w-4 h-4 text-red-500" />
                     <span>
-                      Participantes Online ({participants.length} /{' '}
+                      Alunos na Sala ({participants.length} /{' '}
                       {room.maxParticipants})
                     </span>
                   </div>
@@ -707,429 +904,284 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  {participants.map((p) => (
-                    <div
-                      key={p.uid}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#171C2B] border border-white/[0.06]"
-                    >
-                      <div className="relative w-6 h-6 rounded-full overflow-hidden shrink-0">
-                        <Image
-                          src={p.photoURL || defaultAvatarImg}
-                          alt={p.displayName}
-                          fill
-                          sizes="24px"
-                          className="object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      <span className="text-xs font-medium text-slate-200 truncate max-w-[120px]">
-                        {p.displayName}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Waiting Countdown Box */}
-              <div className="bg-[#111520] border border-red-500/40 rounded-2xl p-6 text-center space-y-4">
-                <p className="text-sm font-medium text-slate-300">
-                  Aguarda o início do jogo...
-                </p>
-                <div className="w-28 h-28 rounded-full border-4 border-red-600/80 mx-auto flex items-center justify-center bg-[#090C14]">
-                  <span className="font-mono-tabular text-3xl font-bold text-white">
-                    00:00
-                  </span>
-                </div>
-                {isHost || isAdmin ? (
-                  <button
-                    onClick={handleStartCompetition}
-                    disabled={starting}
-                    className="w-full sm:w-auto min-h-[48px] px-8 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    {starting
-                      ? 'A iniciar concurso...'
-                      : 'Iniciar Competição Agora'}
-                  </button>
-                ) : (
-                  <div className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-red-600/20 border border-red-500/40 text-red-300 text-sm font-semibold">
-                    O jogo começa em breve! Mantém-te neste ecrã.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* STATE: PLAYING */}
-          {room.status === 'PLAYING' && currentQuestion && (
-            <motion.div
-              key={`q-${currentQuestion.questionIndex}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-6 space-y-5"
-            >
-              {/* Question Header + Examiner Portrait */}
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>
-                  Pergunta {currentQuestion.questionIndex + 1} de{' '}
-                  {room.totalQuestions} · {currentQuestion.category}
-                </span>
-                <span className="font-mono-tabular">
-                  {roundAnswers.length}/{participants.length} responderam
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center bg-[#161B29] border border-white/[0.06] rounded-2xl p-4">
-                <div className="sm:col-span-4 flex items-center gap-3 sm:flex-col sm:text-center">
-                  <div className="relative w-16 h-20 sm:w-28 sm:h-36 rounded-xl overflow-hidden border border-white/10 shrink-0">
-                    <Image
-                      src={examinerImg}
-                      alt="Examinadora Virtual"
-                      fill
-                      sizes="(max-width: 640px) 64px, 112px"
-                      className="object-cover"
-                    />
-                  </div>
-                  <div className="sm:space-y-1">
-                    <p className="text-xs font-semibold text-white">
-                      Examinadora IA
-                    </p>
-                    <button
-                      onClick={repeatCurrentQuestion}
-                      disabled={isLoadingAudio}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-medium cursor-pointer whitespace-nowrap mt-1"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      {isSpeaking ? 'A falar...' : 'Repetir Pergunta'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="sm:col-span-8 space-y-3">
-                  <h3 className="text-lg sm:text-xl font-bold text-white leading-snug">
-                    {currentQuestion.questionText}
-                  </h3>
-                  {currentQuestion.signType &&
-                    currentQuestion.signType !== 'none' && (
-                      <div className="pt-1">
-                        <TrafficSignDisplay
-                          signType={currentQuestion.signType}
-                          size="lg"
-                        />
-                      </div>
-                    )}
-                </div>
-              </div>
-
-              {/* 4 Answer Buttons (Thumb-Friendly >= 56px height) */}
-              <div className="space-y-2.5">
-                {currentQuestion.options.map((opt, idx) => {
-                  const isSelected = myAnswer?.selectedIndex === idx;
-                  const locked = Boolean(myAnswer) || remainingSeconds <= 0;
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => handleSelectOption(idx)}
-                      disabled={locked || submitting}
-                      className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default ${
-                        isSelected
-                          ? 'bg-red-600 border-red-400 text-white shadow-lg shadow-red-600/20'
-                          : locked
-                            ? 'bg-[#151A27] border-white/[0.06] text-slate-400 opacity-75'
-                            : 'bg-[#151A27] border-white/10 text-slate-100 hover:border-red-500/60 hover:bg-[#1A2133] active:scale-[0.99]'
-                      }`}
-                    >
-                      <span
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border ${
-                          isSelected
-                            ? 'bg-white text-red-600 border-white'
-                            : 'border-white/25 text-slate-300'
-                        }`}
-                      >
-                        {OPTION_LETTERS[idx]}
-                      </span>
-                      <span className="text-sm sm:text-base font-medium leading-snug">
-                        {opt}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                <span className="inline-flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-sky-400" />
-                  {myAnswer
-                    ? `Resposta (${OPTION_LETTERS[myAnswer.selectedIndex]}) registada no servidor! A aguardar os outros participantes.`
-                    : 'Responde com atenção antes do fim do tempo!'}
-                </span>
-                {(isHost || isAdmin) && remainingSeconds > 0 && (
-                  <button
-                    onClick={() =>
-                      revealCompetitionRound({
-                        room,
-                        question: currentQuestion,
-                        allAnswered: true,
-                      })
-                    }
-                    className="text-xs text-slate-400 hover:text-white underline cursor-pointer"
-                  >
-                    Encerrar ronda agora
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* STATE: ANSWER_REVEAL */}
-          {room.status === 'ANSWER_REVEAL' && currentQuestion && revealed && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`reveal-${revealed.questionIndex}`}
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.25 }}
-                className={`rounded-2xl border p-5 sm:p-7 space-y-5 relative overflow-hidden ${
-                  myAnswer?.selectedIndex === revealed.correctIndex
-                    ? 'bg-gradient-to-b from-emerald-950/70 to-[#111520] border-emerald-500/40'
-                    : 'bg-gradient-to-b from-red-950/70 to-[#111520] border-red-500/40'
-                }`}
-              >
-                <div className="text-center space-y-2">
-                  {myAnswer?.selectedIndex === revealed.correctIndex ? (
-                    <>
-                      <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
-                        <CheckCircle2 className="w-8 h-8" />
-                      </div>
-                      <h3 className="font-display text-3xl font-extrabold text-emerald-400">
-                        Resposta Correta! +{room.pointsPerCorrect} Pontos
-                      </h3>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-red-600/30">
-                        <XCircle className="w-8 h-8" />
-                      </div>
-                      <h3 className="font-display text-3xl font-extrabold text-red-400">
-                        {myAnswer ? 'Resposta Errada! 0 Pontos' : 'Tempo Esgotado! 0 Pontos'}
-                      </h3>
-                    </>
-                  )}
-                  <p className="text-xs text-slate-300">
-                    Resposta oficial:{' '}
-                    <strong className="text-white">
-                      {OPTION_LETTERS[revealed.correctIndex]}.{' '}
-                      {currentQuestion.options[revealed.correctIndex]}
-                    </strong>
-                  </p>
-                </div>
-
-                {currentQuestion.signType &&
-                  currentQuestion.signType !== 'none' && (
-                    <TrafficSignDisplay
-                      signType={currentQuestion.signType}
-                      size="md"
-                    />
-                  )}
-
-                <div className="bg-[#0B0E17]/90 border border-white/10 rounded-xl p-4 space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                    Explicação da Examinadora IA
-                  </p>
-                  <p className="text-sm text-slate-200 leading-relaxed">
-                    {revealed.explanation}
-                  </p>
-                  <p className="text-xs text-slate-400 pt-1">
-                    Referência: {revealed.legalReference}
-                  </p>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-                  <span className="text-xs text-slate-300 font-medium">
-                    Acertaram: {correctInRoundCount} de {participants.length}{' '}
-                    participantes (
-                    {participants.length > 0
-                      ? Math.round(
-                          (correctInRoundCount / participants.length) * 100
-                        )
-                      : 0}
-                    %)
-                  </span>
-
-                  {isHost || isAdmin ? (
-                    <button
-                      onClick={handleAdvanceRound}
-                      className="w-full sm:w-auto min-h-[48px] px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
-                    >
-                      <span>
-                        {qIndex + 1 < room.totalQuestions
-                          ? `Próxima Pergunta (${revealCountdown}s)`
-                          : `Ver Pódio Final (${revealCountdown}s)`}
-                      </span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-amber-300 font-semibold font-mono-tabular">
-                      Próxima pergunta em {revealCountdown}s...
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          )}
-
-          {/* STATE: FINISHED */}
-          {room.status === 'FINISHED' && (
-            <div className="space-y-6">
-              <div className="bg-[#111520] border border-amber-500/30 rounded-2xl p-6 text-center space-y-5">
-                <div className="relative w-20 h-20 mx-auto rounded-2xl overflow-hidden border border-amber-400/40">
-                  <Image
-                    src={trophyImg}
-                    alt="Vencedor"
-                    fill
-                    sizes="80px"
-                    className="object-cover"
-                  />
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
-                    Competição Concluída
-                  </p>
-                  <h3 className="font-display text-3xl sm:text-4xl font-extrabold text-white mt-1">
-                    {participants[0]?.displayName || 'Vencedor'} é o Campeão!
-                  </h3>
-                </div>
-
-                {/* Top 3 Podium Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                  {participants.slice(0, 3).map((p, idx) => (
-                    <div
-                      key={p.uid}
-                      className={`p-4 rounded-xl border text-center space-y-2 ${
-                        idx === 0
-                          ? 'bg-amber-500/15 border-amber-400/50'
-                          : idx === 1
-                            ? 'bg-slate-400/10 border-slate-400/30'
-                            : 'bg-orange-700/15 border-orange-500/30'
-                      }`}
-                    >
-                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold">
-                        {idx === 0 ? (
-                          <Crown className="w-4 h-4 text-amber-400" />
-                        ) : (
-                          <Medal className="w-4 h-4 text-slate-300" />
-                        )}
-                        <span>{idx + 1}.º Lugar</span>
-                      </div>
-                      <p className="text-sm font-bold text-white truncate">
-                        {p.displayName}
-                      </p>
-                      <p className="font-mono-tabular text-lg font-extrabold text-amber-400">
-                        {p.score} pts
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {p.correctCount} certas · {p.wrongCount} erradas
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {room.aiSummary && (
-                  <div className="bg-[#0B0E17] border border-white/10 rounded-xl p-4 text-left space-y-1.5">
-                    <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                      Resumo da Examinadora IA
-                    </p>
-                    <p className="text-sm text-slate-300 leading-relaxed">
-                      {room.aiSummary}
-                    </p>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                  <Link
-                    href="/salas"
-                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
-                  >
-                    Nova Competição
-                  </Link>
-                  <Link
-                    href="/ranking"
-                    className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
-                  >
-                    Ver Ranking Geral
-                  </Link>
-                </div>
-              </div>
-
-              {/* Educational Review of All Questions */}
-              <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-4">
-                <h4 className="text-lg font-bold text-white">
-                  Resumo Educativo das Perguntas
-                </h4>
-                <div className="space-y-3">
-                  {allQuestions.map((q) => {
-                    const rev = allRevealed[q.questionIndex];
-                    const ans = allMyAnswers[q.questionIndex];
-                    const ok =
-                      rev && ans && ans.selectedIndex === rev.correctIndex;
+                  {participants.map((p) => {
+                    const st = getParticipantStatusLabel(p.status);
                     return (
                       <div
-                        key={q.questionIndex}
-                        className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06] space-y-2"
+                        key={p.uid}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#171C2B] border border-white/[0.06]"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-white">
-                            {q.questionIndex + 1}. {q.questionText}
-                          </p>
-                          {rev && (
-                            <span
-                              className={`text-xs font-bold shrink-0 ${
-                                ok ? 'text-emerald-400' : 'text-red-400'
-                              }`}
-                            >
-                              {ok ? 'Acertou' : 'Errou'}
-                            </span>
-                          )}
+                        <div className="relative w-6 h-6 rounded-full overflow-hidden shrink-0">
+                          <Image
+                            src={p.photoURL || defaultAvatarImg}
+                            alt={p.displayName}
+                            fill
+                            sizes="24px"
+                            className="object-cover"
+                            referrerPolicy="no-referrer"
+                          />
                         </div>
-                        {rev && (
-                          <>
-                            <p className="text-xs text-emerald-300">
-                              Correta: {OPTION_LETTERS[rev.correctIndex]}.{' '}
-                              {q.options[rev.correctIndex]}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {rev.explanation}
-                            </p>
-                          </>
-                        )}
+                        <span className="text-xs font-medium text-slate-200 truncate max-w-[110px]">
+                          {p.displayName}
+                        </span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-md border font-semibold ${st.className}`}
+                        >
+                          {st.label}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               </div>
+
+              {/* Individual Start Box */}
+              <div className="bg-[#111520] border border-red-500/40 rounded-2xl p-6 text-center space-y-4">
+                <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400">
+                  <Sparkles className="w-4 h-4" />
+                  Perguntas Aleatórias em Tempo Real (Código de Estrada de Angola)
+                </div>
+                <h4 className="text-xl font-bold text-white">
+                  Estás pronto para começar o teu jogo?
+                </h4>
+                <p className="text-sm text-slate-300 max-w-lg mx-auto">
+                  A sala aguarda que inicies a tua partida. Ao clicar em iniciar,
+                  a IA gera em tempo real {room.totalQuestions} perguntas únicas
+                  e aleatórias para ti, enquanto o ranking da sala continua em
+                  direto até 100 alunos finalizarem.
+                </p>
+                <button
+                  onClick={handleStartMyGame}
+                  disabled={starting}
+                  className="w-full sm:w-auto min-h-[50px] px-8 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  {starting
+                    ? 'A IA está a gerar as tuas perguntas em tempo real...'
+                    : 'Iniciar o Meu Jogo Agora'}
+                </button>
+              </div>
             </div>
           )}
+
+          {/* VIEW 3: PLAYER PLAYING */}
+          {!showFinishedOrClosedView &&
+            myStatus === 'PLAYING' &&
+            currentQuestion && (
+              <motion.div
+                key={`q-${currentQuestion.questionIndex}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-6 space-y-5"
+              >
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>
+                    Pergunta {currentQuestion.questionIndex + 1} de{' '}
+                    {room.totalQuestions} · {currentQuestion.category}
+                  </span>
+                  <span className="font-mono-tabular text-amber-400">
+                    {finishedCount}/100 finalistas
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center bg-[#161B29] border border-white/[0.06] rounded-2xl p-4">
+                  <div className="sm:col-span-4 flex items-center gap-3 sm:flex-col sm:text-center">
+                    <div className="relative w-16 h-20 sm:w-28 sm:h-36 rounded-xl overflow-hidden border border-white/10 shrink-0">
+                      <Image
+                        src={examinerImg}
+                        alt="Examinadora Virtual"
+                        fill
+                        sizes="(max-width: 640px) 64px, 112px"
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="sm:space-y-1">
+                      <p className="text-xs font-semibold text-white">
+                        Examinadora IA
+                      </p>
+                      <button
+                        onClick={repeatCurrentQuestion}
+                        disabled={isLoadingAudio}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-medium cursor-pointer whitespace-nowrap mt-1"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        {isSpeaking ? 'A falar...' : 'Repetir Pergunta'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-8 space-y-3">
+                    <h3 className="text-lg sm:text-xl font-bold text-white leading-snug">
+                      {currentQuestion.questionText}
+                    </h3>
+                    {currentQuestion.signType &&
+                      currentQuestion.signType !== 'none' && (
+                        <div className="pt-1">
+                          <TrafficSignDisplay
+                            signType={currentQuestion.signType}
+                            size="lg"
+                          />
+                        </div>
+                      )}
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  {currentQuestion.options.map((opt, idx) => {
+                    const isSelected = myAnswer?.selectedIndex === idx;
+                    const locked = Boolean(myAnswer) || remainingSeconds <= 0;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => handleSelectOption(idx)}
+                        disabled={locked || submitting}
+                        className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default ${
+                          isSelected
+                            ? 'bg-red-600 border-red-400 text-white shadow-lg shadow-red-600/20'
+                            : locked
+                              ? 'bg-[#151A27] border-white/[0.06] text-slate-400 opacity-75'
+                              : 'bg-[#151A27] border-white/10 text-slate-100 hover:border-red-500/60 hover:bg-[#1A2133] active:scale-[0.99]'
+                        }`}
+                      >
+                        <span
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border ${
+                            isSelected
+                              ? 'bg-white text-red-600 border-white'
+                              : 'border-white/25 text-slate-300'
+                          }`}
+                        >
+                          {OPTION_LETTERS[idx]}
+                        </span>
+                        <span className="text-sm sm:text-base font-medium leading-snug">
+                          {opt}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-sky-400" />
+                    {myAnswer
+                      ? `Resposta (${OPTION_LETTERS[myAnswer.selectedIndex]}) registada! A validar pontuação...`
+                      : 'Escolhe a opção correta antes do fim do temporizador!'}
+                  </span>
+                </div>
+              </motion.div>
+            )}
+
+          {/* VIEW 4: PLAYER ANSWER REVEAL */}
+          {!showFinishedOrClosedView &&
+            myStatus === 'ANSWER_REVEAL' &&
+            currentQuestion &&
+            revealed && (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`reveal-${revealed.questionIndex}`}
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.25 }}
+                  className={`rounded-2xl border p-5 sm:p-7 space-y-5 relative overflow-hidden ${
+                    myAnswer?.selectedIndex === revealed.correctIndex
+                      ? 'bg-gradient-to-b from-emerald-950/70 to-[#111520] border-emerald-500/40'
+                      : 'bg-gradient-to-b from-red-950/70 to-[#111520] border-red-500/40'
+                  }`}
+                >
+                  <div className="text-center space-y-2">
+                    {myAnswer?.selectedIndex === revealed.correctIndex ? (
+                      <>
+                        <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
+                          <CheckCircle2 className="w-8 h-8" />
+                        </div>
+                        <h3 className="font-display text-3xl font-extrabold text-emerald-400">
+                          Resposta Correta! +{room.pointsPerCorrect} Pontos
+                        </h3>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-red-600/30">
+                          <XCircle className="w-8 h-8" />
+                        </div>
+                        <h3 className="font-display text-3xl font-extrabold text-red-400">
+                          {myAnswer
+                            ? 'Resposta Errada! 0 Pontos'
+                            : 'Tempo Esgotado! 0 Pontos'}
+                        </h3>
+                      </>
+                    )}
+                    <p className="text-xs text-slate-300">
+                      Resposta oficial:{' '}
+                      <strong className="text-white">
+                        {OPTION_LETTERS[revealed.correctIndex]}.{' '}
+                        {currentQuestion.options[revealed.correctIndex]}
+                      </strong>
+                    </p>
+                  </div>
+
+                  {currentQuestion.signType &&
+                    currentQuestion.signType !== 'none' && (
+                      <TrafficSignDisplay
+                        signType={currentQuestion.signType}
+                        size="md"
+                      />
+                    )}
+
+                  <div className="bg-[#0B0E17]/90 border border-white/10 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                      Explicação da Examinadora IA
+                    </p>
+                    <p className="text-sm text-slate-200 leading-relaxed">
+                      {revealed.explanation}
+                    </p>
+                    <p className="text-xs text-slate-400 pt-1">
+                      Referência: {revealed.legalReference}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <span className="text-xs text-slate-300 font-medium">
+                      Pergunta {qIndex + 1} de {room.totalQuestions} concluída
+                    </span>
+
+                    <button
+                      onClick={handleAdvanceRound}
+                      disabled={advancing}
+                      className="w-full sm:w-auto min-h-[48px] px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                    >
+                      <span>
+                        {qIndex + 1 < room.totalQuestions
+                          ? `Próxima Pergunta (${revealCountdown}s)`
+                          : `Ver Meus Resultados (${revealCountdown}s)`}
+                      </span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            )}
         </div>
 
         {/* RIGHT SIDEBAR: LIVE ROOM RANKING */}
         <aside className="lg:col-span-4 space-y-4">
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-amber-400" />
                 <h3 className="text-base font-bold text-white">
                   Ranking da Sala
                 </h3>
               </div>
-              <span className="text-xs text-slate-400 font-mono-tabular">
-                {participants.length} ativos
+              <span className="text-xs text-amber-400 font-mono-tabular font-semibold">
+                {finishedCount}/100 finalistas
               </span>
             </div>
 
-            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
               {participants.map((p, idx) => {
                 const isMe = p.uid === user.uid;
+                const st = getParticipantStatusLabel(p.status);
                 return (
                   <div
                     key={p.uid}
@@ -1165,9 +1217,12 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                           referrerPolicy="no-referrer"
                         />
                       </div>
-                      <span className="text-xs sm:text-sm font-semibold text-white truncate">
-                        {p.displayName}
-                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm font-semibold text-white truncate">
+                          {p.displayName}
+                        </p>
+                        <p className="text-[10px] text-slate-400">{st.label}</p>
+                      </div>
                     </div>
                     <span className="font-mono-tabular text-xs sm:text-sm font-bold text-amber-400 shrink-0">
                       {p.score} pts
@@ -1198,7 +1253,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 space-y-2 text-xs text-slate-400">
             <div className="flex items-center gap-2 text-white font-semibold">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Sincronização Autoritativa</span>
+              <span>Regras da Sala em Tempo Real</span>
             </div>
             <p>
               Código da sala:{' '}
@@ -1211,8 +1266,9 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               </button>
             </p>
             <p>
-              O temporizador e a verificação de respostas são controlados
-              exclusivamente no servidor.
+              Cada aluno recebe perguntas aleatórias geradas em tempo real pela
+              IA sobre o Código de Estrada de Angola. A sala fecha apenas para
+              quem termina e o ranking só encerra após 100 finalistas.
             </p>
           </div>
         </aside>

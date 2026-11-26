@@ -232,40 +232,14 @@ export async function createCompetitionRoom(params: {
 
   const roomId = sanitizeId(`sala_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
   const code = generateRoomCode();
-  const idToken = await currentUser.getIdToken();
 
-  // 1. Generate sealed questions via Gemini AI on the server
-  const aiRes = await fetch('/api/ai/generate-questions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({
-      roomId,
-      count: params.totalQuestions,
-      difficulty: params.difficulty,
-      category: params.category,
-      roomTitle: params.title,
-    }),
-  });
-
-  const aiJson = (await aiRes.json()) as {
-    questions?: Array<Omit<RoomQuestion, 'createdAt'>>;
-    error?: string;
-  };
-  if (!aiRes.ok || !aiJson.questions || aiJson.questions.length === 0) {
-    throw new Error(aiJson.error || 'A IA não conseguiu gerar perguntas para a sala.');
-  }
-
-  const questions = aiJson.questions;
   const roomData: Record<string, unknown> = {
     roomId,
     code,
     title: params.title.trim().slice(0, 100),
     description: (
       params.description ||
-      'Teste os teus conhecimentos do Código de Estrada de Angola em tempo real!'
+      'Perguntas 100% geradas em tempo real pela IA com base no Código de Estrada de Angola. Ranking ativo até 100 finalistas!'
     )
       .trim()
       .slice(0, 300),
@@ -275,8 +249,9 @@ export async function createCompetitionRoom(params: {
     status: 'WAITING',
     maxParticipants: Math.min(Math.max(params.maxParticipants, 2), 1000),
     participantCount: 0,
-    totalQuestions: questions.length,
-    timePerQuestion: Math.min(Math.max(params.timePerQuestion, 10), 180),
+    finishedCount: 0,
+    totalQuestions: Math.min(Math.max(params.totalQuestions, 3), 25),
+    timePerQuestion: Math.min(Math.max(params.timePerQuestion, 15), 180),
     pointsPerCorrect: 10,
     difficulty: params.difficulty,
     category: params.category.slice(0, 60),
@@ -291,26 +266,12 @@ export async function createCompetitionRoom(params: {
     handleFirestoreError(err, OperationType.CREATE, `rooms/${roomId}`);
   }
 
-  try {
-    const batch = writeBatch(db);
-    for (const q of questions) {
-      const qRef = doc(db, 'rooms', roomId, 'questions', String(q.questionIndex));
-      batch.set(qRef, {
-        ...q,
-        createdAt: serverTimestamp(),
-      });
-    }
-    await batch.commit();
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `rooms/${roomId}/questions`);
-  }
-
   if (params.isAdminUser) {
     await logAdminAudit({
       action: 'CREATE_ROOM',
       targetType: 'room',
       targetId: roomId,
-      details: `Sala "${params.title}" (${code}) criada com ${questions.length} perguntas por IA.`,
+      details: `Sala "${params.title}" (${code}) criada com perguntas IA em tempo real por aluno.`,
     });
   }
 
@@ -351,17 +312,25 @@ export async function joinCompetitionRoom(
         throw new Error('Esta sala de competição não existe.');
       }
       const room = roomSnap.data() as CompetitionRoom;
-      if (room.status === 'FINISHED') {
-        throw new Error('Esta competição já terminou.');
-      }
+      const finishedCount = typeof room.finishedCount === 'number' ? room.finishedCount : 0;
+      const isRoomClosed = room.status === 'FINISHED' || finishedCount >= 100;
 
       const partSnap = await tx.get(participantRef);
       if (partSnap.exists()) {
+        const existingPart = partSnap.data() as RoomParticipant;
+        // If participant already finished or room hit 100 finishers, keep read-only access
+        if (existingPart.status === 'FINISHED' || isRoomClosed) {
+          return;
+        }
         tx.update(participantRef, {
           online: true,
           lastActiveAt: serverTimestamp(),
         });
         return;
+      }
+
+      if (isRoomClosed) {
+        throw new Error('Esta sala já atingiu 100 finalistas e encerrou o ranking.');
       }
 
       if (room.participantCount >= room.maxParticipants) {
@@ -376,6 +345,9 @@ export async function joinCompetitionRoom(
         correctCount: 0,
         wrongCount: 0,
         lastScoredQuestionIndex: -1,
+        status: 'WAITING',
+        currentQuestionIndex: -1,
+        questionsGenerated: false,
         online: true,
         joinedAt: serverTimestamp(),
         lastActiveAt: serverTimestamp(),
@@ -398,46 +370,161 @@ export async function joinCompetitionRoom(
   }
 }
 
-export async function startCompetitionRound(
-  roomId: string,
-  questionIndex: number,
-  timePerQuestion: number
-): Promise<void> {
+export async function startPlayerGame(room: CompetitionRoom): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error('Sessão expirada.');
   const idToken = await user.getIdToken();
 
-  const res = await fetch('/api/competition/start-round', {
+  // Check if player already generated questions or finished
+  const partRef = doc(db, 'rooms', room.roomId, 'participants', user.uid);
+  const partSnap = await getDoc(partRef);
+  if (!partSnap.exists()) {
+    throw new Error('Entra primeiro na sala.');
+  }
+  const part = partSnap.data() as RoomParticipant;
+  if (part.status === 'FINISHED') {
+    throw new Error('Já concluíste esta competição.');
+  }
+
+  // 1. Generate 100% live randomized AI questions uniquely for this participant
+  if (!part.questionsGenerated) {
+    const aiRes = await fetch('/api/ai/generate-questions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        roomId: room.roomId,
+        count: room.totalQuestions,
+        difficulty: room.difficulty,
+        category: room.category,
+        roomTitle: room.title,
+      }),
+    });
+
+    const aiJson = (await aiRes.json()) as {
+      questions?: Array<Omit<RoomQuestion, 'createdAt'>>;
+      error?: string;
+    };
+    if (!aiRes.ok || !aiJson.questions || aiJson.questions.length === 0) {
+      throw new Error(aiJson.error || 'A IA não conseguiu gerar as tuas perguntas em tempo real.');
+    }
+
+    try {
+      const batch = writeBatch(db);
+      for (const q of aiJson.questions) {
+        const qDocId = `${user.uid}_${q.questionIndex}`;
+        const qRef = doc(db, 'rooms', room.roomId, 'player_questions', qDocId);
+        batch.set(qRef, {
+          ...q,
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `rooms/${room.roomId}/player_questions`);
+    }
+  }
+
+  // 2. Start round 0 with authoritative server timer for this participant
+  const roundRes = await fetch('/api/competition/start-round', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${idToken}`,
     },
-    body: JSON.stringify({ roomId, questionIndex, timePerQuestion }),
+    body: JSON.stringify({
+      roomId: room.roomId,
+      questionIndex: 0,
+      timePerQuestion: room.timePerQuestion,
+    }),
   });
 
-  const data = (await res.json()) as {
+  const roundData = (await roundRes.json()) as {
     questionStartedAtMs?: number;
     questionEndsAtMs?: number;
     roundToken?: string;
     error?: string;
   };
-  if (!res.ok || !data.roundToken || !data.questionEndsAtMs) {
-    throw new Error(data.error || 'Não foi possível iniciar a pergunta.');
+  if (!roundRes.ok || !roundData.roundToken || !roundData.questionEndsAtMs) {
+    throw new Error(roundData.error || 'Não foi possível iniciar o teu temporizador.');
   }
 
   try {
-    await updateDoc(doc(db, 'rooms', roomId), {
+    await updateDoc(partRef, {
       status: 'PLAYING',
-      currentQuestionIndex: questionIndex,
-      questionStartedAtMs: data.questionStartedAtMs,
-      questionEndsAtMs: data.questionEndsAtMs,
-      questionEndsAt: Timestamp.fromMillis(data.questionEndsAtMs),
-      roundToken: data.roundToken,
-      updatedAt: serverTimestamp(),
+      currentQuestionIndex: 0,
+      questionsGenerated: true,
+      questionStartedAtMs: roundData.questionStartedAtMs,
+      questionEndsAtMs: roundData.questionEndsAtMs,
+      questionEndsAt: Timestamp.fromMillis(roundData.questionEndsAtMs),
+      roundToken: roundData.roundToken,
+      lastActiveAt: serverTimestamp(),
     });
   } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `rooms/${roomId}`);
+    handleFirestoreError(err, OperationType.UPDATE, `rooms/${room.roomId}/participants/${user.uid}`);
+  }
+
+  // Mark room status as PLAYING if still WAITING (keeps room open to new players until 100 finishers)
+  if (room.status === 'WAITING') {
+    try {
+      await updateDoc(doc(db, 'rooms', room.roomId), {
+        status: 'PLAYING',
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      // Non-blocking if another player transitioned it concurrently
+    }
+  }
+}
+
+export async function advancePlayerQuestion(
+  room: CompetitionRoom,
+  nextQuestionIndex: number
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sessão expirada.');
+  const idToken = await user.getIdToken();
+
+  const roundRes = await fetch('/api/competition/start-round', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      roomId: room.roomId,
+      questionIndex: nextQuestionIndex,
+      timePerQuestion: room.timePerQuestion,
+    }),
+  });
+
+  const roundData = (await roundRes.json()) as {
+    questionStartedAtMs?: number;
+    questionEndsAtMs?: number;
+    roundToken?: string;
+    error?: string;
+  };
+  if (!roundRes.ok || !roundData.roundToken || !roundData.questionEndsAtMs) {
+    throw new Error(roundData.error || 'Não foi possível avançar para a próxima pergunta.');
+  }
+
+  const partRef = doc(db, 'rooms', room.roomId, 'participants', user.uid);
+  try {
+    await updateDoc(partRef, {
+      status: 'PLAYING',
+      currentQuestionIndex: nextQuestionIndex,
+      questionsGenerated: true,
+      questionStartedAtMs: roundData.questionStartedAtMs,
+      questionEndsAtMs: roundData.questionEndsAtMs,
+      questionEndsAt: Timestamp.fromMillis(roundData.questionEndsAtMs),
+      roundToken: roundData.roundToken,
+      lastActiveAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `rooms/${room.roomId}/participants/${user.uid}`);
   }
 }
 
@@ -464,10 +551,10 @@ export async function submitPlayerAnswer(params: {
   }
 }
 
-export async function revealCompetitionRound(params: {
+export async function revealAndScorePlayerRound(params: {
   room: CompetitionRoom;
+  participant: RoomParticipant;
   question: RoomQuestion;
-  allAnswered: boolean;
 }): Promise<RoomRevealedAnswer | null> {
   const user = auth.currentUser;
   if (!user) return null;
@@ -482,9 +569,8 @@ export async function revealCompetitionRound(params: {
     body: JSON.stringify({
       roomId: params.room.roomId,
       questionIndex: params.question.questionIndex,
-      roundToken: params.room.roundToken,
+      roundToken: params.participant.roundToken,
       sealedPayload: params.question.sealedPayload,
-      allAnswered: params.allAnswered,
     }),
   });
 
@@ -499,14 +585,15 @@ export async function revealCompetitionRound(params: {
     revealProof: string;
   };
 
-  const qIdxStr = String(params.question.questionIndex);
-  const revealedRef = doc(db, 'rooms', params.room.roomId, 'revealed', qIdxStr);
+  const rDocId = `${user.uid}_${params.question.questionIndex}`;
+  const revealedRef = doc(db, 'rooms', params.room.roomId, 'player_revealed', rDocId);
   const existingRevealed = await getDoc(revealedRef);
 
   if (!existingRevealed.exists()) {
     try {
       await setDoc(revealedRef, {
         roomId: params.room.roomId,
+        uid: user.uid,
         questionIndex: params.question.questionIndex,
         correctIndex: revealData.correctIndex,
         explanation: revealData.explanation,
@@ -515,38 +602,17 @@ export async function revealCompetitionRound(params: {
         revealedAt: serverTimestamp(),
       });
     } catch (err) {
-      // Ignore if another participant or host wrote it first concurrently
       console.warn('Concorrência na escrita de revelação:', err);
     }
   }
 
-  try {
-    await updateDoc(doc(db, 'rooms', params.room.roomId), {
-      status: 'ANSWER_REVEAL',
-      updatedAt: serverTimestamp(),
-    });
-  } catch (err) {
-    console.warn('Atualização de estado para ANSWER_REVEAL:', err);
-  }
-
-  const snap = await getDoc(revealedRef);
-  return snap.exists() ? (snap.data() as RoomRevealedAnswer) : null;
-}
-
-export async function scoreParticipantForRound(params: {
-  roomId: string;
-  uid: string;
-  questionIndex: number;
-  correctIndex: number;
-  pointsPerCorrect: number;
-}): Promise<void> {
-  const partRef = doc(db, 'rooms', params.roomId, 'participants', params.uid);
+  const partRef = doc(db, 'rooms', params.room.roomId, 'participants', user.uid);
   const ansRef = doc(
     db,
     'rooms',
-    params.roomId,
+    params.room.roomId,
     'answers',
-    `${params.questionIndex}_${params.uid}`
+    `${params.question.questionIndex}_${user.uid}`
   );
 
   try {
@@ -554,18 +620,20 @@ export async function scoreParticipantForRound(params: {
       const partSnap = await tx.get(partRef);
       if (!partSnap.exists()) return;
       const part = partSnap.data() as RoomParticipant;
-      if (part.lastScoredQuestionIndex >= params.questionIndex) return;
-      if (part.lastScoredQuestionIndex !== params.questionIndex - 1) return;
+      if (part.status !== 'PLAYING') return;
+      if (part.lastScoredQuestionIndex >= params.question.questionIndex) return;
+      if (part.lastScoredQuestionIndex !== params.question.questionIndex - 1) return;
 
       const ansSnap = await tx.get(ansRef);
       const isCorrect =
-        ansSnap.exists() && ansSnap.data().selectedIndex === params.correctIndex;
+        ansSnap.exists() && ansSnap.data().selectedIndex === revealData.correctIndex;
 
       tx.update(partRef, {
-        score: isCorrect ? part.score + params.pointsPerCorrect : part.score,
+        status: 'ANSWER_REVEAL',
+        score: isCorrect ? part.score + params.room.pointsPerCorrect : part.score,
         correctCount: isCorrect ? part.correctCount + 1 : part.correctCount,
         wrongCount: isCorrect ? part.wrongCount : part.wrongCount + 1,
-        lastScoredQuestionIndex: params.questionIndex,
+        lastScoredQuestionIndex: params.question.questionIndex,
         lastActiveAt: serverTimestamp(),
       });
     });
@@ -573,79 +641,112 @@ export async function scoreParticipantForRound(params: {
     handleFirestoreError(
       err,
       OperationType.UPDATE,
-      `rooms/${params.roomId}/participants/${params.uid}`
+      `rooms/${params.room.roomId}/participants/${user.uid}`
     );
   }
+
+  const snap = await getDoc(revealedRef);
+  return snap.exists() ? (snap.data() as RoomRevealedAnswer) : null;
 }
 
-export async function finishCompetitionRoom(params: {
+export async function finishPlayerCompetition(params: {
   room: CompetitionRoom;
-  participants: RoomParticipant[];
-  categories: string[];
-}): Promise<void> {
+  profile: UserProfile;
+}): Promise<{ finishedCount: number; roomClosed: boolean }> {
   const user = auth.currentUser;
-  if (!user) return;
-  const sorted = [...params.participants].sort((a, b) => b.score - a.score);
-  const winner = sorted[0];
+  if (!user) throw new Error('Sessão expirada.');
 
-  let aiSummary =
-    'Competição concluída com sucesso! Continua a praticar o Código de Estrada de Angola.';
-  try {
-    const idToken = await user.getIdToken();
-    const res = await fetch('/api/ai/competition-summary', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({
-        roomTitle: params.room.title,
-        winnerName: winner?.displayName || 'Participante',
-        winnerScore: winner?.score || 0,
-        participantCount: sorted.length,
-        totalQuestions: params.room.totalQuestions,
-        topTopics: params.categories,
-      }),
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { summary?: string };
-      if (json.summary) aiSummary = json.summary;
-    }
-  } catch {
-    // fallback summary stays
-  }
+  const roomRef = doc(db, 'rooms', params.room.roomId);
+  const partRef = doc(db, 'rooms', params.room.roomId, 'participants', user.uid);
+
+  let nextFinishedCount = typeof params.room.finishedCount === 'number' ? params.room.finishedCount : 0;
+  let roomClosed = params.room.status === 'FINISHED';
 
   try {
-    await updateDoc(doc(db, 'rooms', params.room.roomId), {
-      status: 'FINISHED',
-      aiSummary,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `rooms/${params.room.roomId}`);
-  }
+    await runTransaction(db, async (tx) => {
+      const [roomSnap, partSnap] = await Promise.all([tx.get(roomRef), tx.get(partRef)]);
+      if (!roomSnap.exists() || !partSnap.exists()) return;
 
-  try {
-    const compRef = doc(db, 'competitions', params.room.roomId);
-    const existingComp = await getDoc(compRef);
-    if (!existingComp.exists()) {
-      await setDoc(compRef, {
-        competitionId: params.room.roomId,
-        roomId: params.room.roomId,
-        title: params.room.title,
-        code: params.room.code,
-        winnerUid: winner?.uid || params.room.hostId,
-        winnerName: winner?.displayName || params.room.hostName,
-        winnerScore: winner?.score || 0,
-        participantCount: sorted.length,
-        totalQuestions: params.room.totalQuestions,
-        isPublic: params.room.isPublic,
+      const r = roomSnap.data() as CompetitionRoom;
+      const p = partSnap.data() as RoomParticipant;
+
+      if (p.status === 'FINISHED') {
+        nextFinishedCount = typeof r.finishedCount === 'number' ? r.finishedCount : 0;
+        roomClosed = r.status === 'FINISHED' || nextFinishedCount >= 100;
+        return;
+      }
+
+      const prevFinished = typeof r.finishedCount === 'number' ? r.finishedCount : 0;
+      if (r.status === 'FINISHED' || prevFinished >= 100) {
+        throw new Error('A sala já concluiu os 100 finalistas e encerrou o ranking.');
+      }
+
+      nextFinishedCount = prevFinished + 1;
+      roomClosed = nextFinishedCount >= 100;
+
+      tx.update(partRef, {
+        status: 'FINISHED',
         finishedAt: serverTimestamp(),
+        lastActiveAt: serverTimestamp(),
       });
-    }
+
+      tx.update(roomRef, {
+        finishedCount: nextFinishedCount,
+        status: roomClosed ? 'FINISHED' : r.status,
+        updatedAt: serverTimestamp(),
+      });
+    });
   } catch (err) {
-    console.warn('Erro ao arquivar competição:', err);
+    if (err instanceof Error && !err.message.includes('Missing or insufficient permissions')) {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.WRITE, `rooms/${params.room.roomId}`);
   }
+
+  // Fetch latest participants for ranking position snapshot and record personal result
+  const partSnaps = await getDocs(
+    query(
+      collection(db, 'rooms', params.room.roomId, 'participants'),
+      where('roomId', '==', params.room.roomId),
+      orderBy('score', 'desc')
+    )
+  );
+  const participants = partSnaps.docs.map((d) => d.data() as RoomParticipant);
+
+  await recordMyCompetitionResult({
+    room: { ...params.room, finishedCount: nextFinishedCount },
+    participants,
+    profile: params.profile,
+  });
+
+  // Archive competition when 100th finisher completes
+  if (roomClosed) {
+    try {
+      const sorted = [...participants].sort((a, b) => b.score - a.score);
+      const winner = sorted[0];
+      const compRef = doc(db, 'competitions', params.room.roomId);
+      const existingComp = await getDoc(compRef);
+      if (!existingComp.exists()) {
+        await setDoc(compRef, {
+          competitionId: params.room.roomId,
+          roomId: params.room.roomId,
+          title: params.room.title,
+          code: params.room.code,
+          winnerUid: winner?.uid || params.room.hostId,
+          winnerName: winner?.displayName || params.room.hostName,
+          winnerScore: winner?.score || 0,
+          participantCount: sorted.length,
+          totalQuestions: params.room.totalQuestions,
+          isPublic: params.room.isPublic,
+          finishedAt: serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.warn('Erro ao arquivar competição:', err);
+    }
+  }
+
+  return { finishedCount: nextFinishedCount, roomClosed };
 }
 
 export async function recordMyCompetitionResult(params: {

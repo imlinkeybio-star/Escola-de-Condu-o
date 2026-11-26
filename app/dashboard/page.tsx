@@ -70,7 +70,9 @@ export default function DashboardPage() {
   };
 
   const featuredRoom =
-    rooms.find((r) => r.status === 'WAITING' || r.status === 'PLAYING') ||
+    rooms.find(
+      (r) => r.status !== 'FINISHED' && (r.finishedCount ?? 0) < 100
+    ) ||
     rooms[0] ||
     null;
 
@@ -212,17 +214,17 @@ export default function DashboardPage() {
                       </h4>
                     </div>
                     <span className="text-xs font-bold text-emerald-400 shrink-0">
-                      {featuredRoom.status === 'WAITING'
-                        ? 'Aberta'
-                        : featuredRoom.status === 'FINISHED'
-                          ? 'Concluída'
-                          : 'Em Jogo'}
+                      {featuredRoom.status === 'FINISHED' ||
+                      (featuredRoom.finishedCount ?? 0) >= 100
+                        ? 'Encerrada (100/100)'
+                        : `Aberta · ${featuredRoom.finishedCount ?? 0}/100`}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-300">
                     <span className="inline-flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-slate-400" />
-                      {featuredRoom.participantCount}/{featuredRoom.maxParticipants} alunos
+                      {featuredRoom.participantCount} alunos ·{' '}
+                      {featuredRoom.finishedCount ?? 0}/100 finalistas
                     </span>
                     <span>
                       {featuredRoom.totalQuestions} perguntas · {featuredRoom.timePerQuestion}s

@@ -47,11 +47,11 @@ function SalasContent() {
   // Create form state
   const [title, setTitle] = useState('Concurso Código de Estrada Luanda');
   const [description, setDescription] = useState(
-    'Competição oficial em tempo real com perguntas geradas por Inteligência Artificial.'
+    'Perguntas 100% geradas em tempo real pela IA com base no Código de Estrada de Angola. Ranking aberto até 100 finalistas.'
   );
   const [totalQuestions, setTotalQuestions] = useState(10);
   const [timePerQuestion, setTimePerQuestion] = useState(60);
-  const [maxParticipants, setMaxParticipants] = useState(100);
+  const [maxParticipants, setMaxParticipants] = useState(200);
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('Intermédio');
   const [category, setCategory] = useState('Geral');
 
@@ -115,9 +115,12 @@ function SalasContent() {
     router.push(`/sala/${found.roomId}`);
   };
 
+  const isRoomFinished = (r: CompetitionRoom) =>
+    r.status === 'FINISHED' || (r.finishedCount ?? 0) >= 100;
+
   const filteredRooms = rooms.filter((r) => {
-    if (filter === 'active') return r.status !== 'FINISHED';
-    if (filter === 'finished') return r.status === 'FINISHED';
+    if (filter === 'active') return !isRoomFinished(r);
+    if (filter === 'finished') return isRoomFinished(r);
     return true;
   });
 
@@ -203,60 +206,58 @@ function SalasContent() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRooms.map((r) => (
-              <div
-                key={r.roomId}
-                className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 flex flex-col justify-between space-y-4"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono-tabular text-slate-400">
-                      {r.code} · {r.difficulty}
-                    </span>
-                    <span
-                      className={`font-bold ${
-                        r.status === 'FINISHED'
-                          ? 'text-slate-400'
-                          : r.status === 'WAITING'
-                            ? 'text-emerald-400'
-                            : 'text-red-400'
-                      }`}
-                    >
-                      {r.status === 'WAITING'
-                        ? 'Aguarda Início'
-                        : r.status === 'FINISHED'
-                          ? 'Concluída'
-                          : 'Em Direto'}
-                    </span>
+            {filteredRooms.map((r) => {
+              const closed = isRoomFinished(r);
+              const fin = r.finishedCount ?? 0;
+              return (
+                <div
+                  key={r.roomId}
+                  className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 flex flex-col justify-between space-y-4"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono-tabular text-slate-400">
+                        {r.code} · {r.difficulty}
+                      </span>
+                      <span
+                        className={`font-bold ${
+                          closed ? 'text-slate-400' : 'text-emerald-400'
+                        }`}
+                      >
+                        {closed
+                          ? 'Encerrada (100/100)'
+                          : `Aberta · ${fin}/100 finalistas`}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-white leading-snug">
+                      {r.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 line-clamp-2">
+                      {r.description}
+                    </p>
                   </div>
-                  <h3 className="text-lg font-bold text-white leading-snug">
-                    {r.title}
-                  </h3>
-                  <p className="text-xs text-slate-400 line-clamp-2">
-                    {r.description}
-                  </p>
-                </div>
 
-                <div className="space-y-3 pt-2 border-t border-white/[0.06]">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-slate-400" />
-                      {r.participantCount}/{r.maxParticipants}
-                    </span>
-                    <span>
-                      {r.totalQuestions} perguntas · {r.timePerQuestion}s
-                    </span>
+                  <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-slate-400" />
+                        {r.participantCount} alunos · {fin}/100 concluíram
+                      </span>
+                      <span>
+                        {r.totalQuestions} perguntas · {r.timePerQuestion}s
+                      </span>
+                    </div>
+                    <Link
+                      href={`/sala/${r.roomId}`}
+                      className="w-full min-h-[42px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
+                    </Link>
                   </div>
-                  <Link
-                    href={`/sala/${r.roomId}`}
-                    className="w-full min-h-[42px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    {r.status === 'FINISHED' ? 'Ver Resultados' : 'Entrar na Sala'}
-                  </Link>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -392,14 +393,20 @@ function SalasContent() {
                   </div>
                 </div>
 
+                <p className="text-xs text-slate-400 bg-[#090C14] border border-white/10 rounded-xl p-3">
+                  Cada aluno recebe perguntas aleatórias geradas 100% em tempo
+                  real pela IA com base no Código de Estrada de Angola. A sala
+                  mantém o ranking ativo até 100 pessoas finalizarem.
+                </p>
+
                 <button
                   type="submit"
                   disabled={creating}
                   className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm cursor-pointer"
                 >
                   {creating
-                    ? 'A IA Gemini está a gerar e selar as perguntas...'
-                    : 'Criar Sala & Gerar Perguntas'}
+                    ? 'A criar sala ao vivo...'
+                    : 'Criar Sala (Perguntas IA em Tempo Real)'}
                 </button>
               </form>
             </div>

@@ -16,30 +16,35 @@
       "static/chunks/main-app.js",
       "static/chunks/app/page.js"
     ],
-    "/ranking/page": [
+    "/salas/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/ranking/page.js"
-    ],
-    "/api/time/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/api/time/route.js"
-    ],
-    "/entrar/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/entrar/page.js"
+      "static/chunks/app/salas/page.js"
     ],
     "/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/dashboard/page.js"
     ],
-    "/_not-found/page": [
+    "/ranking/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/_not-found/page.js"
+      "static/chunks/app/ranking/page.js"
+    ],
+    "/api/ai/generate-questions/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/ai/generate-questions/route.js"
+    ],
+    "/api/competition/start-round/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/competition/start-round/route.js"
+    ],
+    "/api/competition/reveal-answer/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/competition/reveal-answer/route.js"
     ]
   }
 }

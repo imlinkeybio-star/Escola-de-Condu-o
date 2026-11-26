@@ -64,6 +64,12 @@ export interface UserPrivateInfo {
   updatedAt: unknown;
 }
 
+export type ParticipantStatus =
+  | 'WAITING'
+  | 'PLAYING'
+  | 'ANSWER_REVEAL'
+  | 'FINISHED';
+
 export interface CompetitionRoom {
   roomId: string;
   code: string;
@@ -75,6 +81,7 @@ export interface CompetitionRoom {
   status: RoomStatus;
   maxParticipants: number;
   participantCount: number;
+  finishedCount: number;
   totalQuestions: number;
   timePerQuestion: number;
   pointsPerCorrect: number;
@@ -99,6 +106,14 @@ export interface RoomParticipant {
   correctCount: number;
   wrongCount: number;
   lastScoredQuestionIndex: number;
+  status: ParticipantStatus;
+  currentQuestionIndex: number;
+  questionsGenerated: boolean;
+  questionStartedAtMs?: number;
+  questionEndsAtMs?: number;
+  questionEndsAt?: unknown;
+  roundToken?: string;
+  finishedAt?: unknown;
   online: boolean;
   joinedAt: unknown;
   lastActiveAt: unknown;
@@ -106,6 +121,7 @@ export interface RoomParticipant {
 
 export interface RoomQuestion {
   roomId: string;
+  uid?: string;
   questionIndex: number;
   questionText: string;
   options: string[];
@@ -128,6 +144,7 @@ export interface RoomAnswer {
 
 export interface RoomRevealedAnswer {
   roomId: string;
+  uid?: string;
   questionIndex: number;
   correctIndex: number;
   explanation: string;

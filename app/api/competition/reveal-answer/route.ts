@@ -5,6 +5,27 @@ import {
   unsealQuestionAnswer,
   verifyRoundToken,
 } from '@/lib/server/crypto';
+import firebaseConfig from '../../../../firebase-applet-config.json';
+
+async function hasSubmittedAnswerInFirestore(params: {
+  roomId: string;
+  questionIndex: number;
+  uid: string;
+  authHeader: string;
+}): Promise<boolean> {
+  const answerDocId = `${params.questionIndex}_${params.uid}`;
+  const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${firebaseConfig.firestoreDatabaseId}/documents/rooms/${encodeURIComponent(params.roomId)}/answers/${encodeURIComponent(answerDocId)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: params.authHeader },
+      cache: 'no-store',
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,7 +42,6 @@ export async function POST(req: NextRequest) {
       questionIndex?: number;
       roundToken?: string;
       sealedPayload?: string;
-      allAnswered?: boolean;
     };
 
     const roomId = typeof body.roomId === 'string' ? body.roomId.trim() : '';
@@ -30,7 +50,6 @@ export async function POST(req: NextRequest) {
     const roundToken = typeof body.roundToken === 'string' ? body.roundToken : '';
     const sealedPayload =
       typeof body.sealedPayload === 'string' ? body.sealedPayload : '';
-    const allAnswered = Boolean(body.allAnswered);
 
     if (!roomId || questionIndex < 0 || !roundToken || !sealedPayload) {
       return NextResponse.json(
@@ -43,6 +62,7 @@ export async function POST(req: NextRequest) {
     if (
       !tokenData ||
       tokenData.roomId !== roomId ||
+      tokenData.uid !== user.uid ||
       tokenData.questionIndex !== questionIndex
     ) {
       return NextResponse.json(
@@ -51,31 +71,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Server authoritative clock check: do not unseal before round expires unless all participants answered
     const now = Date.now();
-    if (!allAnswered && now < tokenData.questionEndsAtMs - 1500) {
-      return NextResponse.json(
-        {
-          error: 'O temporizador oficial da pergunta ainda não terminou.',
-          remainingMs: tokenData.questionEndsAtMs - now,
-        },
-        { status: 403 }
-      );
+    if (now < tokenData.questionEndsAtMs - 1500) {
+      const authHeader = req.headers.get('authorization') || '';
+      const answerExists = await hasSubmittedAnswerInFirestore({
+        roomId,
+        questionIndex,
+        uid: user.uid,
+        authHeader,
+      });
+      if (!answerExists) {
+        return NextResponse.json(
+          {
+            error: 'Responde primeiro ou aguarda o fim do temporizador oficial.',
+            remainingMs: tokenData.questionEndsAtMs - now,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const unsealed = unsealQuestionAnswer(sealedPayload);
     if (
       unsealed.roomId !== roomId ||
+      unsealed.uid !== user.uid ||
       unsealed.questionIndex !== questionIndex
     ) {
       return NextResponse.json(
-        { error: 'A pergunta selada não corresponde a esta ronda.' },
+        { error: 'A pergunta selada não corresponde a este jogador ou ronda.' },
         { status: 403 }
       );
     }
 
     const revealProof = signRevealProof(
       roomId,
+      user.uid,
       questionIndex,
       unsealed.correctIndex
     );

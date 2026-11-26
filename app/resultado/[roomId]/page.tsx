@@ -45,44 +45,66 @@ export default function ResultadoPage({
     if (!user || !roomId) return;
     const load = async () => {
       try {
-        const [roomSnap, partSnaps, qSnaps, rSnaps, aSnaps] = await Promise.all([
-          getDoc(doc(db, 'rooms', roomId)),
-          getDocs(
-            query(
-              collection(db, 'rooms', roomId, 'participants'),
-              where('roomId', '==', roomId),
-              orderBy('score', 'desc')
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, 'rooms', roomId, 'questions'),
-              where('roomId', '==', roomId)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, 'rooms', roomId, 'revealed'),
-              where('roomId', '==', roomId)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, 'rooms', roomId, 'answers'),
-              where('roomId', '==', roomId)
-            )
-          ),
-        ]);
+        const [roomSnap, partSnaps, pqSnaps, prSnaps, aSnaps] =
+          await Promise.all([
+            getDoc(doc(db, 'rooms', roomId)),
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'participants'),
+                where('roomId', '==', roomId),
+                orderBy('score', 'desc')
+              )
+            ),
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'player_questions'),
+                where('uid', '==', user.uid)
+              )
+            ),
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'player_revealed'),
+                where('uid', '==', user.uid)
+              )
+            ),
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'answers'),
+                where('roomId', '==', roomId)
+              )
+            ),
+          ]);
+
+        let qDocs = pqSnaps.docs;
+        let rDocs = prSnaps.docs;
+        if (qDocs.length === 0) {
+          const [legacyQ, legacyR] = await Promise.all([
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'questions'),
+                where('roomId', '==', roomId)
+              )
+            ),
+            getDocs(
+              query(
+                collection(db, 'rooms', roomId, 'revealed'),
+                where('roomId', '==', roomId)
+              )
+            ),
+          ]);
+          qDocs = legacyQ.docs;
+          rDocs = legacyR.docs;
+        }
 
         if (roomSnap.exists()) setRoom(roomSnap.data() as CompetitionRoom);
         setParticipants(partSnaps.docs.map((d) => d.data() as RoomParticipant));
         setQuestions(
-          qSnaps.docs
+          qDocs
             .map((d) => d.data() as RoomQuestion)
             .sort((a, b) => a.questionIndex - b.questionIndex)
         );
         const rMap: Record<number, RoomRevealedAnswer> = {};
-        rSnaps.docs.forEach((d) => {
+        rDocs.forEach((d) => {
           const item = d.data() as RoomRevealedAnswer;
           rMap[item.questionIndex] = item;
         });

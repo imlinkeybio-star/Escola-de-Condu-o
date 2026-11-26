@@ -281,7 +281,7 @@ export default function AdminPage() {
                 className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer"
               >
                 {creatingRoom
-                  ? 'A gerar perguntas com IA...'
+                  ? 'A criar sala...'
                   : 'Disponibilizar Sala'}
               </button>
             </form>
@@ -297,7 +297,8 @@ export default function AdminPage() {
                       {r.title}
                     </p>
                     <p className="text-xs text-slate-400">
-                      Código {r.code} · {r.status} · {r.participantCount} alunos
+                      Código {r.code} · {r.status} · {r.participantCount} alunos ·{' '}
+                      {r.finishedCount ?? 0}/100 finalistas
                     </p>
                   </div>
                   <Link

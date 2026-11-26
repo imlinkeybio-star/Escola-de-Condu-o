@@ -46,16 +46,20 @@ export async function POST(req: NextRequest) {
         ? body.roomTitle.trim().slice(0, 100)
         : 'Concurso Código de Estrada';
 
+    const playerSeed = `${roomId}_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     const generated = await generateAngolaDrivingQuestions({
       count,
       difficulty,
       category,
       roomTitle,
+      playerSeed,
     });
 
     const sealedQuestions = generated.map((q, questionIndex) => {
       const { sealedPayload, answerCommitment } = sealQuestionAnswer({
         roomId,
+        uid: user.uid,
         questionIndex,
         correctIndex: q.correctIndex,
         explanation: q.explanation,
@@ -64,6 +68,7 @@ export async function POST(req: NextRequest) {
 
       return {
         roomId,
+        uid: user.uid,
         questionIndex,
         questionText: q.questionText,
         options: q.options,

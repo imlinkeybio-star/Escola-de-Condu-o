@@ -46,121 +46,197 @@ const VALID_SIGN_TYPES = [
   'semaforos',
 ] as const;
 
+const ANGOLA_TRAFFIC_THEMES = [
+  'Sinalização vertical de perigo, proibição e obrigação segundo o Regulamento de Sinalização de Trânsito em Angola',
+  'Regras de prioridade em cruzamentos, entroncamentos, rotundas e veículos prioritários (Decreto-Lei n.º 5/08)',
+  'Limites de velocidade dentro e fora das localidades, vias rápidas e condução defensiva em Angola',
+  'Manobras de ultrapassagem, mudança de direção, inversão de marcha e cedência de passagem a peões nas passadeiras',
+  'Paragem, estacionamento, iluminação obrigatória, triângulo de pré-sinalização e colete refletor',
+  'Documentação obrigatória do condutor e do veículo (Carta de Condução, Livrete, Seguro Obrigatório, inspeção e normas da DTSER / Viação e Trânsito)',
+  'Álcool, fadiga, uso do cinto de segurança, transporte de menores, uso do telemóvel e responsabilidade rodoviária',
+  'Condições adversas (chuva intensa, piso escorregadio, nevoeiro, obras na via) e distância de segurança',
+  'Primeiros socorros em sinistros rodoviários e sinalização do local do acidente em Angola',
+  'Manutenção preventiva, travões, pneus, luzes e segurança mecânica básica',
+];
+
+function shufflePickThemes(seedSource: string): string[] {
+  let hash = 0;
+  for (let i = 0; i < seedSource.length; i++) {
+    hash = (hash * 31 + seedSource.charCodeAt(i)) >>> 0;
+  }
+  const pool = [...ANGOLA_TRAFFIC_THEMES];
+  for (let i = pool.length - 1; i > 0; i--) {
+    hash = (hash * 1664525 + 1013904223) >>> 0;
+    const j = hash % (i + 1);
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  return pool.slice(0, 5);
+}
+
 export async function generateAngolaDrivingQuestions(params: {
   count: number;
   difficulty: string;
   category: string;
   roomTitle: string;
+  playerSeed?: string;
 }): Promise<GeneratedQuestionRaw[]> {
   const ai = getAIClient();
   const count = Math.min(Math.max(params.count, 1), 25);
+  const seed = params.playerSeed || `${Date.now()}_${Math.random()}`;
+  const selectedThemes = shufflePickThemes(seed);
 
   const systemInstruction = `És uma examinadora oficial de condução em Angola para a plataforma ESCOLA DE CONDUÇÃO LIVE.
-Gera exatamente ${count} perguntas de exame teórico de condução em português utilizado em Angola (português claro, formal e educativo, ex: "peões", "passadeira", "rotunda", "carta de condução", "Código de Estrada").
+Gera exatamente ${count} perguntas inéditas e aleatórias de exame teórico de condução em português utilizado em Angola (português claro, formal e educativo, ex: "peões", "passadeira", "rotunda", "carta de condução", "Código de Estrada").
 
-REGRAS RIGOROSAS DE VERACIDADE LEGAL:
-1. Baseia-te exclusivamente em princípios reais do Código de Estrada de Angola (Decreto-Lei n.º 5/08 e normas da DTSER / Viação e Trânsito) e na Convenção de Viena sobre Sinalização Rodoviária aplicável em Angola.
-2. NUNCA inventes números de artigos específicos, valores exatos de coimas em Kwanzas ou prazos numéricos se não tiveres 100% de certeza. Quando explicares regras legais, refere o princípio geral do Código de Estrada de Angola (ex: "Princípio da prioridade à direita — Código de Estrada de Angola" ou "Sinalização de Perigo — Código de Estrada de Angola").
-3. Cada pergunta deve ter exatamente 4 opções distintas (sem prefixo A/B/C/D nas strings das opções), apenas 1 resposta inequívoca e correta, e uma explicação educativa clara e objetiva.
+REGRAS RIGOROSAS DE VERACIDADE LEGAL (ANGOLA):
+1. Baseia-te exclusivamente na legislação rodoviária e no Código de Estrada de Angola (Decreto-Lei n.º 5/08, Regulamento de Sinalização de Trânsito e normas da DTSER / Viação e Trânsito) e na Convenção de Viena aplicável em Angola.
+2. NUNCA inventes números de artigos específicos, valores exatos de coimas em Kwanzas ou prazos numéricos se não tiveres 100% de certeza. Quando explicares regras legais, refere o princípio ou diploma aplicável do Código de Estrada de Angola (ex: "Código de Estrada de Angola (Decreto-Lei n.º 5/08) — Regras de Prioridade").
+3. Cada pergunta deve ter exatamente 4 opções totalmente distintas, realistas e sem prefixos (A/B/C/D), apenas 1 resposta inequívoca e correta, e uma explicação pedagógica completa.
 4. Para o campo "signType", escolhe o sinal mais adequado desta lista exata: ${VALID_SIGN_TYPES.join(', ')}. Usa um sinal específico sempre que a pergunta envolver sinalização ou manobra associada, ou "none" para perguntas puramente teóricas (documentação, primeiros socorros, mecânica).
-5. Se usares um sinal de trânsito específico, certifica-te de que a pergunta e a resposta correta correspondem fielmente ao significado desse sinal!`;
+5. Se usares um sinal de trânsito específico, garante que o enunciado e a resposta correta correspondem fielmente ao significado desse sinal em Angola.
+6. Garante máxima variedade e originalidade em relação a outras sessões (usa cenários práticos variados em Angola: vias urbanas, rotundas, estradas nacionais, chuva, condução noturna).`;
 
-  const prompt = `Cria ${count} perguntas variadas para o concurso "${params.roomTitle}".
+  const prompt = `Sessão aleatória única: ${seed}.
+Cria ${count} perguntas novas e variadas para a sala "${params.roomTitle}".
 Nível de dificuldade: ${params.difficulty}.
-Categoria principal: ${params.category}.
-Inclui uma mistura equilibrada de sinais de trânsito, prioridades, limites de velocidade, rotundas, ultrapassagens, condução defensiva e segurança rodoviária em Angola.`;
+Categoria principal solicitada: ${params.category}.
+Subtemas prioritários para esta ronda aleatória:
+- ${selectedThemes.join('\n- ')}
+Se a categoria solicitada for específica (diferente de "Geral"), foca a maioria das perguntas nessa categoria mantendo cenários originais e distintos.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: prompt,
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            questionText: {
-              type: Type.STRING,
-              description: 'Enunciado claro da pergunta em português de Angola.',
-            },
-            options: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: 'Exatamente 4 opções de resposta curtas e claras.',
-            },
-            correctIndex: {
-              type: Type.INTEGER,
-              description: 'Índice da resposta correta (0, 1, 2 ou 3).',
-            },
-            explanation: {
-              type: Type.STRING,
-              description: 'Explicação educativa clara para o aluno aprender.',
-            },
-            legalReference: {
-              type: Type.STRING,
-              description:
-                'Referência geral verificável (ex: Código de Estrada de Angola — Regras de Prioridade). Sem inventar números de artigo.',
-            },
-            category: {
-              type: Type.STRING,
-              description: 'Categoria temática da pergunta.',
-            },
-            signType: {
-              type: Type.STRING,
-              description: `Identificador do sinal visual da lista permitida: ${VALID_SIGN_TYPES.join(', ')}`,
-            },
-          },
-          required: [
-            'questionText',
-            'options',
-            'correctIndex',
-            'explanation',
-            'legalReference',
-            'category',
-            'signType',
-          ],
+  const schema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        questionText: {
+          type: Type.STRING,
+          description: 'Enunciado claro da pergunta em português de Angola.',
+        },
+        options: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Exatamente 4 opções de resposta curtas, distintas e reais.',
+        },
+        correctIndex: {
+          type: Type.INTEGER,
+          description: 'Índice da resposta correta (0, 1, 2 ou 3).',
+        },
+        explanation: {
+          type: Type.STRING,
+          description: 'Explicação educativa clara baseada no Código de Estrada de Angola.',
+        },
+        legalReference: {
+          type: Type.STRING,
+          description:
+            'Referência legal verificável em Angola (ex: Código de Estrada de Angola — Decreto-Lei n.º 5/08, Prioridade).',
+        },
+        category: {
+          type: Type.STRING,
+          description: 'Categoria temática da pergunta.',
+        },
+        signType: {
+          type: Type.STRING,
+          description: `Identificador do sinal visual da lista permitida: ${VALID_SIGN_TYPES.join(', ')}`,
         },
       },
+      required: [
+        'questionText',
+        'options',
+        'correctIndex',
+        'explanation',
+        'legalReference',
+        'category',
+        'signType',
+      ],
     },
-  });
+  };
 
-  const rawText = (response.text ?? '[]').trim();
-  const parsed = JSON.parse(rawText) as GeneratedQuestionRaw[];
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('A IA não devolveu perguntas válidas.');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents:
+        attempt === 0
+          ? prompt
+          : `${prompt}\nATENÇÃO: Garante exatamente ${count} objetos completos com 4 opções distintas não vazias e explicação detalhada.`,
+      config: {
+        systemInstruction,
+        temperature: 1.0,
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+      },
+    });
+
+    const rawText = (response.text ?? '').trim();
+    if (!rawText) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+
+    const validated: GeneratedQuestionRaw[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const q = item as Partial<GeneratedQuestionRaw>;
+      const questionText = String(q.questionText ?? '').trim().slice(0, 480);
+      const rawOpts = Array.isArray(q.options)
+        ? q.options.map((o) => String(o ?? '').trim().slice(0, 180)).filter(Boolean)
+        : [];
+      const uniqueOpts = Array.from(new Set(rawOpts));
+      const explanation = String(q.explanation ?? '').trim().slice(0, 1400);
+      const legalReference = String(q.legalReference ?? '').trim().slice(0, 280);
+      const category = String(q.category ?? params.category).trim().slice(0, 75);
+      const correctIndex =
+        typeof q.correctIndex === 'number' &&
+        Number.isInteger(q.correctIndex) &&
+        q.correctIndex >= 0 &&
+        q.correctIndex <= 3
+          ? q.correctIndex
+          : -1;
+
+      if (
+        questionText.length < 10 ||
+        uniqueOpts.length < 4 ||
+        correctIndex < 0 ||
+        explanation.length < 10 ||
+        legalReference.length < 4
+      ) {
+        continue;
+      }
+
+      const safeSign = VALID_SIGN_TYPES.includes(
+        q.signType as (typeof VALID_SIGN_TYPES)[number]
+      )
+        ? (q.signType as string)
+        : 'none';
+
+      validated.push({
+        questionText,
+        options: uniqueOpts.slice(0, 4),
+        correctIndex,
+        explanation,
+        legalReference,
+        category: category || params.category,
+        signType: safeSign,
+      });
+
+      if (validated.length >= count) break;
+    }
+
+    if (validated.length === count) {
+      return validated;
+    }
   }
 
-  return parsed.slice(0, count).map((q) => {
-    const cleanOptions = Array.isArray(q.options)
-      ? q.options.slice(0, 4).map((o) => String(o).trim().slice(0, 180))
-      : ['Opção A', 'Opção B', 'Opção C', 'Opção D'];
-    while (cleanOptions.length < 4) {
-      cleanOptions.push(`Opção ${cleanOptions.length + 1}`);
-    }
-    const safeIdx =
-      typeof q.correctIndex === 'number' &&
-      q.correctIndex >= 0 &&
-      q.correctIndex <= 3
-        ? Math.floor(q.correctIndex)
-        : 0;
-    const safeSign = VALID_SIGN_TYPES.includes(
-      q.signType as (typeof VALID_SIGN_TYPES)[number]
-    )
-      ? q.signType
-      : 'none';
-
-    return {
-      questionText: String(q.questionText || '').trim().slice(0, 480),
-      options: cleanOptions,
-      correctIndex: safeIdx,
-      explanation: String(q.explanation || 'Resposta verificada pelo Código de Estrada.').trim().slice(0, 1400),
-      legalReference: String(q.legalReference || 'Código de Estrada de Angola').trim().slice(0, 280),
-      category: String(q.category || params.category).trim().slice(0, 75),
-      signType: safeSign,
-    };
-  });
+  throw new Error(
+    'A IA não conseguiu gerar o conjunto completo de perguntas em tempo real. Tenta novamente.'
+  );
 }
 
 export async function generateCompetitionSummary(params: {

@@ -1,13 +1,13 @@
 # Security Specification — Escola de Condução Live
 
 ## 1. Data Invariants
-1. **No Answer Leakage Before Reveal**: `rooms/{roomId}/questions/{qIndex}` never stores plaintext `correctIndex` or `explanation`. It stores only AES-256-GCM encrypted `sealedPayload` and SHA-256 `answerCommitment`.
+1. **No Answer Leakage Before Reveal**: `rooms/{roomId}/player_questions/{qDocId}` never stores plaintext `correctIndex` or `explanation`. It stores only AES-256-GCM encrypted `sealedPayload` and SHA-256 `answerCommitment` bound to `(roomId, uid, questionIndex)`.
 2. **One Answer Per Player Per Question**: `rooms/{roomId}/answers/{answerId}` enforces document ID `== "{questionIndex}_{request.auth.uid}"` and blocks updates/deletes.
-3. **Authoritative Server Clock Enforcement**: Answer submission requires `request.time <= get(room).data.questionEndsAt` and `get(room).data.status == "PLAYING"`.
-4. **Tamper-Proof Scoring**: `rooms/{roomId}/participants/{uid}` score increment is mathematically verified inside Firestore rules against `get(revealedDoc).data.correctIndex == get(answerDoc).data.selectedIndex` and monotonic `lastScoredQuestionIndex == existing.lastScoredQuestionIndex + 1`.
+3. **Authoritative Server Clock Enforcement**: Answer submission requires `request.time <= get(participant).data.questionEndsAt`, `get(participant).data.status == "PLAYING"`, and `get(room).data.finishedCount < 100`.
+4. **Tamper-Proof Scoring**: `rooms/{roomId}/participants/{uid}` score increment is mathematically verified inside Firestore rules against `get(playerRevealedDoc).data.correctIndex == get(answerDoc).data.selectedIndex` and monotonic `lastScoredQuestionIndex == existing.lastScoredQuestionIndex + 1`.
 5. **Strict PII Isolation**: `email`, `drivingSchool`, and `province` live exclusively in `users/{uid}/private/info`, accessible only by `isOwner(uid)` or `isAdmin()`.
 6. **Admin Audit Immutability**: `audit_logs` permits `create` and `read` only for `isAdmin()`, and strictly forbids `update` or `delete`.
-7. **Terminal Room State Lock**: Once `rooms/{roomId}.status == "FINISHED"`, non-admin updates are permanently rejected.
+7. **Per-Player & 100-Finisher Room Lock**: A participant with `status == "FINISHED"` cannot replay or mutate their score; `rooms/{roomId}` stays open for other students until `finishedCount` reaches `100`, at which point `rooms/{roomId}.status` atomically becomes `"FINISHED"` and permanently stops the ranking.
 
 ## 2. The "Dirty Dozen" Adversarial Payloads
 1. **Identity Spoofing on User Create**: `{ "uid": "victim-uid", "displayName": "Hacker", ... }` by attacker -> `PERMISSION_DENIED`.

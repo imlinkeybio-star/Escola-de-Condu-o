@@ -63,6 +63,7 @@
         "status": { "type": "string", "enum": ["WAITING", "STARTING", "PLAYING", "ANSWER_REVEAL", "LEADERBOARD", "FINISHED"] },
         "maxParticipants": { "type": "integer" },
         "participantCount": { "type": "integer" },
+        "finishedCount": { "type": "integer" },
         "totalQuestions": { "type": "integer" },
         "timePerQuestion": { "type": "integer" },
         "pointsPerCorrect": { "type": "integer" },
@@ -77,11 +78,11 @@
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["roomId", "code", "title", "hostId", "hostName", "isPublic", "status", "maxParticipants", "participantCount", "totalQuestions", "timePerQuestion", "pointsPerCorrect", "difficulty", "category", "currentQuestionIndex", "createdAt", "updatedAt"]
+      "required": ["roomId", "code", "title", "hostId", "hostName", "isPublic", "status", "maxParticipants", "participantCount", "finishedCount", "totalQuestions", "timePerQuestion", "pointsPerCorrect", "difficulty", "category", "currentQuestionIndex", "createdAt", "updatedAt"]
     },
     "RoomParticipant": {
       "title": "RoomParticipant",
-      "description": "Live participant state and score inside a room.",
+      "description": "Live participant state, independent round progress, and score inside a room.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -92,11 +93,19 @@
         "correctCount": { "type": "integer" },
         "wrongCount": { "type": "integer" },
         "lastScoredQuestionIndex": { "type": "integer" },
+        "status": { "type": "string", "enum": ["WAITING", "PLAYING", "ANSWER_REVEAL", "FINISHED"] },
+        "currentQuestionIndex": { "type": "integer" },
+        "questionsGenerated": { "type": "boolean" },
+        "questionStartedAtMs": { "type": "integer" },
+        "questionEndsAtMs": { "type": "integer" },
+        "questionEndsAt": { "type": "string", "format": "date-time" },
+        "roundToken": { "type": "string", "maxLength": 256 },
+        "finishedAt": { "type": "string", "format": "date-time" },
         "online": { "type": "boolean" },
         "joinedAt": { "type": "string", "format": "date-time" },
         "lastActiveAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "roomId", "displayName", "score", "correctCount", "wrongCount", "lastScoredQuestionIndex", "online", "joinedAt", "lastActiveAt"]
+      "required": ["uid", "roomId", "displayName", "score", "correctCount", "wrongCount", "lastScoredQuestionIndex", "status", "currentQuestionIndex", "questionsGenerated", "online", "joinedAt", "lastActiveAt"]
     },
     "RoomQuestion": {
       "title": "RoomQuestion",
@@ -104,6 +113,7 @@
       "type": "object",
       "properties": {
         "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "questionIndex": { "type": "integer" },
         "questionText": { "type": "string", "minLength": 5, "maxLength": 500 },
         "options": { "type": "array" },
@@ -136,6 +146,7 @@
       "type": "object",
       "properties": {
         "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "questionIndex": { "type": "integer" },
         "correctIndex": { "type": "integer" },
         "explanation": { "type": "string", "maxLength": 1500 },
@@ -290,7 +301,11 @@
     },
     "/rooms/{roomId}/questions/{qIndex}": {
       "schema": { "$ref": "#/entities/RoomQuestion" },
-      "description": "Public questions with AES-256-GCM sealed answers"
+      "description": "Legacy shared room questions with AES-256-GCM sealed answers"
+    },
+    "/rooms/{roomId}/player_questions/{qDocId}": {
+      "schema": { "$ref": "#/entities/RoomQuestion" },
+      "description": "Per-player randomized AI-generated questions with AES-256-GCM sealed answers"
     },
     "/rooms/{roomId}/answers/{answerId}": {
       "schema": { "$ref": "#/entities/RoomAnswer" },
@@ -298,7 +313,11 @@
     },
     "/rooms/{roomId}/revealed/{qIndex}": {
       "schema": { "$ref": "#/entities/RoomRevealedAnswer" },
-      "description": "Revealed correct answers and explanations after round closes"
+      "description": "Legacy revealed answers"
+    },
+    "/rooms/{roomId}/player_revealed/{rDocId}": {
+      "schema": { "$ref": "#/entities/RoomRevealedAnswer" },
+      "description": "Per-player revealed correct answers and AI explanations"
     },
     "/competitions/{competitionId}": {
       "schema": { "$ref": "#/entities/CompetitionArchive" },

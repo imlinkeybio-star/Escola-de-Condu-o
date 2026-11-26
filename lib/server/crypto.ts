@@ -21,6 +21,7 @@ function getMasterKey(): Buffer {
 
 export interface SealedAnswerData {
   roomId: string;
+  uid: string;
   questionIndex: number;
   correctIndex: number;
   explanation: string;
@@ -45,7 +46,7 @@ export function sealQuestionAnswer(data: Omit<SealedAnswerData, 'salt'>): {
   const answerCommitment = crypto
     .createHash('sha256')
     .update(
-      `${data.roomId}:${data.questionIndex}:${data.correctIndex}:${salt}`
+      `${data.roomId}:${data.uid}:${data.questionIndex}:${data.correctIndex}:${salt}`
     )
     .digest('hex');
 
@@ -72,6 +73,7 @@ export function unsealQuestionAnswer(sealedPayload: string): SealedAnswerData {
 
 export interface RoundTokenPayload {
   roomId: string;
+  uid: string;
   questionIndex: number;
   questionStartedAtMs: number;
   questionEndsAtMs: number;
@@ -114,11 +116,12 @@ export function verifyRoundToken(token: string): RoundTokenPayload | null {
 
 export function signRevealProof(
   roomId: string,
+  uid: string,
   questionIndex: number,
   correctIndex: number
 ): string {
   return crypto
     .createHmac('sha256', getMasterKey())
-    .update(`reveal:${roomId}:${questionIndex}:${correctIndex}`)
+    .update(`reveal:${roomId}:${uid}:${questionIndex}:${correctIndex}`)
     .digest('hex');
 }

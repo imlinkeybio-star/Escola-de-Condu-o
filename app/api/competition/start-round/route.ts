@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     const questionEndsAtMs = questionStartedAtMs + timePerQuestion * 1000;
     const roundToken = signRoundToken({
       roomId,
+      uid: user.uid,
       questionIndex,
       questionStartedAtMs,
       questionEndsAtMs,

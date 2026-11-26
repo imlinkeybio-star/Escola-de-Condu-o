@@ -115,7 +115,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'roomId', 'code', 'title', 'description', 'hostId', 'hostName', 'isPublic', 'status',
-          'maxParticipants', 'participantCount', 'totalQuestions', 'timePerQuestion',
+          'maxParticipants', 'participantCount', 'finishedCount', 'totalQuestions', 'timePerQuestion',
           'pointsPerCorrect', 'difficulty', 'category', 'currentQuestionIndex',
           'questionStartedAtMs', 'questionEndsAtMs', 'questionEndsAt', 'roundToken',
           'aiSummary', 'createdAt', 'updatedAt'
@@ -130,6 +130,7 @@ service cloud.firestore {
         && data.status in ['WAITING', 'STARTING', 'PLAYING', 'ANSWER_REVEAL', 'LEADERBOARD', 'FINISHED']
         && data.maxParticipants is int && data.maxParticipants >= 2 && data.maxParticipants <= 1000
         && data.participantCount is int && data.participantCount >= 0 && data.participantCount <= data.maxParticipants
+        && (!('finishedCount' in data) || (data.finishedCount is int && data.finishedCount >= 0 && data.finishedCount <= 100))
         && data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 50
         && data.timePerQuestion is int && data.timePerQuestion >= 10 && data.timePerQuestion <= 180
         && data.pointsPerCorrect is int && data.pointsPerCorrect >= 1 && data.pointsPerCorrect <= 100
@@ -148,11 +149,14 @@ service cloud.firestore {
     function isValidParticipant(data, roomId, uid) {
       return data.keys().hasAll([
           'uid', 'roomId', 'displayName', 'score', 'correctCount',
-          'wrongCount', 'lastScoredQuestionIndex', 'online', 'joinedAt', 'lastActiveAt'
+          'wrongCount', 'lastScoredQuestionIndex', 'status', 'currentQuestionIndex',
+          'questionsGenerated', 'online', 'joinedAt', 'lastActiveAt'
         ])
         && data.keys().hasOnly([
           'uid', 'roomId', 'displayName', 'photoURL', 'score', 'correctCount',
-          'wrongCount', 'lastScoredQuestionIndex', 'online', 'joinedAt', 'lastActiveAt'
+          'wrongCount', 'lastScoredQuestionIndex', 'status', 'currentQuestionIndex',
+          'questionsGenerated', 'questionStartedAtMs', 'questionEndsAtMs',
+          'questionEndsAt', 'roundToken', 'finishedAt', 'online', 'joinedAt', 'lastActiveAt'
         ])
         && data.uid is string && data.uid == uid && isValidId(data.uid)
         && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
@@ -162,6 +166,14 @@ service cloud.firestore {
         && data.correctCount is int && data.correctCount >= 0 && data.correctCount <= 100
         && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 100
         && data.lastScoredQuestionIndex is int && data.lastScoredQuestionIndex >= -1 && data.lastScoredQuestionIndex <= 50
+        && data.status in ['WAITING', 'PLAYING', 'ANSWER_REVEAL', 'FINISHED']
+        && data.currentQuestionIndex is int && data.currentQuestionIndex >= -1 && data.currentQuestionIndex <= 50
+        && data.questionsGenerated is bool
+        && (!('questionStartedAtMs' in data) || (data.questionStartedAtMs is int && data.questionStartedAtMs >= 0))
+        && (!('questionEndsAtMs' in data) || (data.questionEndsAtMs is int && data.questionEndsAtMs >= 0))
+        && (!('questionEndsAt' in data) || (data.questionEndsAt is timestamp))
+        && (!('roundToken' in data) || (data.roundToken is string && data.roundToken.size() <= 256))
+        && (!('finishedAt' in data) || (data.finishedAt is timestamp))
         && data.online is bool
         && data.joinedAt is timestamp
         && data.lastActiveAt is timestamp;
@@ -173,10 +185,11 @@ service cloud.firestore {
           'difficulty', 'signType', 'sealedPayload', 'answerCommitment', 'createdAt'
         ])
         && data.keys().hasOnly([
-          'roomId', 'questionIndex', 'questionText', 'options', 'category',
+          'roomId', 'uid', 'questionIndex', 'questionText', 'options', 'category',
           'difficulty', 'signType', 'sealedPayload', 'answerCommitment', 'createdAt'
         ])
         && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && (!('uid' in data) || (data.uid is string && isValidId(data.uid)))
         && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
         && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
         && data.options is list && data.options.size() == 4 && data.options[0] is string
@@ -205,10 +218,11 @@ service cloud.firestore {
           'legalReference', 'revealProof', 'revealedAt'
         ])
         && data.keys().hasOnly([
-          'roomId', 'questionIndex', 'correctIndex', 'explanation',
+          'roomId', 'uid', 'questionIndex', 'correctIndex', 'explanation',
           'legalReference', 'revealProof', 'revealedAt'
         ])
         && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && (!('uid' in data) || (data.uid is string && isValidId(data.uid)))
         && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
         && data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3
         && data.explanation is string && data.explanation.size() >= 5 && data.explanation.size() <= 1500
@@ -217,13 +231,17 @@ service cloud.firestore {
         && data.revealedAt is timestamp;
     }
 
-    function isValidScoreStep(roomId, uid, inc, ex) {
+    function isValidPlayerScoreStep(roomId, uid, inc, ex) {
       let room = get(/databases/$(database)/documents/rooms/$(roomId)).data;
-      let qIdx = room.currentQuestionIndex;
-      let revealed = get(/databases/$(database)/documents/rooms/$(roomId)/revealed/$(string(qIdx))).data;
+      let qIdx = ex.currentQuestionIndex;
+      let revealed = get(/databases/$(database)/documents/rooms/$(roomId)/player_revealed/$(uid + '_' + string(qIdx))).data;
       let ansPath = /databases/$(database)/documents/rooms/$(roomId)/answers/$(string(qIdx) + '_' + uid);
       let isCorrect = exists(ansPath) && get(ansPath).data.selectedIndex == revealed.correctIndex;
-      return (room.status == 'ANSWER_REVEAL' || room.status == 'LEADERBOARD')
+      return room.status != 'FINISHED'
+        && (!('finishedCount' in room) || room.finishedCount < 100)
+        && ex.status == 'PLAYING'
+        && inc.status == 'ANSWER_REVEAL'
+        && inc.currentQuestionIndex == qIdx
         && inc.lastScoredQuestionIndex == qIdx
         && ex.lastScoredQuestionIndex == qIdx - 1
         && (
@@ -436,6 +454,7 @@ service cloud.firestore {
         && incoming().hostId == request.auth.uid
         && incoming().status == 'WAITING'
         && incoming().participantCount == 0
+        && (!('finishedCount' in incoming()) || incoming().finishedCount == 0)
         && incoming().currentQuestionIndex == -1
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -451,26 +470,33 @@ service cloud.firestore {
           isAdmin()
           || (
             existing().status != 'FINISHED'
-            && existing().hostId == request.auth.uid
-            && incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'currentQuestionIndex', 'questionStartedAtMs',
-              'questionEndsAtMs', 'questionEndsAt', 'roundToken', 'aiSummary', 'updatedAt'
-            ])
-          )
-          || (
-            existing().status != 'FINISHED'
+            && (!('finishedCount' in existing()) || existing().finishedCount < 100)
             && (incoming().participantCount == existing().participantCount + 1 || incoming().participantCount == existing().participantCount - 1)
             && incoming().participantCount >= 0
             && incoming().participantCount <= existing().maxParticipants
             && incoming().diff(existing()).affectedKeys().hasOnly(['participantCount', 'updatedAt'])
           )
           || (
-            existing().status == 'PLAYING'
-            && ('questionEndsAt' in existing())
-            && request.time >= existing().questionEndsAt + duration.value(3, 's')
-            && incoming().status == 'ANSWER_REVEAL'
+            existing().status == 'WAITING'
+            && (!('finishedCount' in existing()) || existing().finishedCount < 100)
+            && incoming().status == 'PLAYING'
             && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+          || (
+            existing().status != 'FINISHED'
+            && (!('finishedCount' in existing()) || existing().finishedCount < 100)
+            && incoming().finishedCount == (('finishedCount' in existing() ? existing().finishedCount : 0) + 1)
+            && incoming().finishedCount <= 100
+            && (
+              incoming().finishedCount >= 100
+                ? incoming().status == 'FINISHED'
+                : incoming().status == existing().status
+            )
+            && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+            && get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.status != 'FINISHED'
+            && getAfter(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.status == 'FINISHED'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['finishedCount', 'status', 'updatedAt'])
           )
         );
       allow delete: if isSignedIn() && isValidId(roomId) && isAdmin();
@@ -486,10 +512,17 @@ service cloud.firestore {
           && incoming().correctCount == 0
           && incoming().wrongCount == 0
           && incoming().lastScoredQuestionIndex == -1
+          && incoming().status == 'WAITING'
+          && incoming().currentQuestionIndex == -1
+          && incoming().questionsGenerated == false
           && incoming().joinedAt == request.time
           && incoming().lastActiveAt == request.time
           && exists(/databases/$(database)/documents/rooms/$(roomId))
-          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status in ['WAITING', 'STARTING', 'PLAYING'];
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status != 'FINISHED'
+          && (
+            !('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
+          );
         allow update: if isSignedIn() && isValidId(roomId) && isValidId(uid)
           && isValidParticipant(incoming(), roomId, uid)
           && incoming().uid == existing().uid
@@ -500,14 +533,56 @@ service cloud.firestore {
             isAdmin()
             || (
               isOwner(uid)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['online', 'lastActiveAt'])
-            )
-            || (
-              isOwner(uid)
-              && isValidScoreStep(roomId, uid, incoming(), existing())
-              && incoming().diff(existing()).affectedKeys().hasOnly([
-                'score', 'correctCount', 'wrongCount', 'lastScoredQuestionIndex', 'lastActiveAt'
-              ])
+              && existing().status != 'FINISHED'
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.status != 'FINISHED'
+              && (
+                !('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+                || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
+              )
+              && (
+                incoming().diff(existing()).affectedKeys().hasOnly(['online', 'lastActiveAt'])
+                || (
+                  incoming().status == 'PLAYING'
+                  && incoming().questionsGenerated == true
+                  && incoming().currentQuestionIndex >= 0
+                  && incoming().currentQuestionIndex < get(/databases/$(database)/documents/rooms/$(roomId)).data.totalQuestions
+                  && (
+                    (existing().status == 'WAITING' && incoming().currentQuestionIndex == 0)
+                    || (
+                      existing().status == 'ANSWER_REVEAL'
+                      && incoming().currentQuestionIndex == existing().currentQuestionIndex + 1
+                      && existing().lastScoredQuestionIndex == existing().currentQuestionIndex
+                    )
+                  )
+                  && ('questionEndsAt' in incoming())
+                  && incoming().diff(existing()).affectedKeys().hasOnly([
+                    'status', 'currentQuestionIndex', 'questionsGenerated',
+                    'questionStartedAtMs', 'questionEndsAtMs', 'questionEndsAt',
+                    'roundToken', 'lastActiveAt'
+                  ])
+                )
+                || (
+                  isValidPlayerScoreStep(roomId, uid, incoming(), existing())
+                  && incoming().diff(existing()).affectedKeys().hasOnly([
+                    'status', 'score', 'correctCount', 'wrongCount',
+                    'lastScoredQuestionIndex', 'lastActiveAt'
+                  ])
+                )
+                || (
+                  existing().status == 'ANSWER_REVEAL'
+                  && existing().lastScoredQuestionIndex == get(/databases/$(database)/documents/rooms/$(roomId)).data.totalQuestions - 1
+                  && incoming().status == 'FINISHED'
+                  && ('finishedAt' in incoming())
+                  && incoming().finishedAt == request.time
+                  && getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount
+                    == (('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data
+                      ? get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount
+                      : 0) + 1)
+                  && incoming().diff(existing()).affectedKeys().hasOnly([
+                    'status', 'finishedAt', 'lastActiveAt'
+                  ])
+                )
+              )
             )
           );
         allow delete: if isSignedIn() && isValidId(roomId) && isValidId(uid) && (isOwner(uid) || isAdmin());
@@ -516,49 +591,72 @@ service cloud.firestore {
       match /questions/{qIndex} {
         allow get: if isSignedIn() && isValidId(roomId) && isValidId(qIndex);
         allow list: if isSignedIn() && resource.data.roomId == roomId;
-        allow create: if isSignedIn() && isValidId(roomId) && isValidId(qIndex)
+        allow create: if false;
+        allow update, delete: if false;
+      }
+
+      match /player_questions/{qDocId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidLongId(qDocId)
+          && (existing().uid == request.auth.uid || isAdmin());
+        allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidLongId(qDocId)
           && isValidRoomQuestion(incoming(), roomId)
+          && ('uid' in incoming())
+          && incoming().uid == request.auth.uid
+          && qDocId == (request.auth.uid + '_' + string(incoming().questionIndex))
           && incoming().createdAt == request.time
-          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status != 'FINISHED'
           && (
-            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid
-            || isAdmin()
+            !('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
           );
         allow update, delete: if false;
       }
 
       match /answers/{answerId} {
-        allow get: if isSignedIn() && isValidId(roomId) && isValidId(answerId);
+        allow get: if isSignedIn() && isValidId(roomId) && isValidLongId(answerId);
         allow list: if isSignedIn() && resource.data.roomId == roomId;
-        allow create: if isSignedIn() && isValidId(roomId) && isValidId(answerId)
+        allow create: if isSignedIn() && isValidId(roomId) && isValidLongId(answerId)
           && isUserNotDisabled(request.auth.uid)
           && isValidRoomAnswer(incoming(), roomId)
           && incoming().submittedAt == request.time
           && answerId == (string(incoming().questionIndex) + '_' + request.auth.uid)
           && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
-          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status == 'PLAYING'
-          && get(/databases/$(database)/documents/rooms/$(roomId)).data.currentQuestionIndex == incoming().questionIndex
-          && ('questionEndsAt' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
-          && request.time <= get(/databases/$(database)/documents/rooms/$(roomId)).data.questionEndsAt;
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status != 'FINISHED'
+          && (
+            !('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
+          )
+          && get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.status == 'PLAYING'
+          && get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.currentQuestionIndex == incoming().questionIndex
+          && ('questionEndsAt' in get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data)
+          && request.time <= get(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid)).data.questionEndsAt;
         allow update, delete: if false;
       }
 
       match /revealed/{qIndex} {
         allow get: if isSignedIn() && isValidId(roomId) && isValidId(qIndex);
         allow list: if isSignedIn() && resource.data.roomId == roomId;
-        allow create: if isSignedIn() && isValidId(roomId) && isValidId(qIndex)
+        allow create: if false;
+        allow update, delete: if false;
+      }
+
+      match /player_revealed/{rDocId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidLongId(rDocId)
+          && (existing().uid == request.auth.uid || isAdmin());
+        allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidLongId(rDocId)
           && isValidRevealedAnswer(incoming(), roomId)
+          && ('uid' in incoming())
+          && incoming().uid == request.auth.uid
+          && rDocId == (request.auth.uid + '_' + string(incoming().questionIndex))
           && incoming().revealedAt == request.time
-          && qIndex == string(incoming().questionIndex)
-          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status != 'FINISHED'
           && (
-            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid
-            || isAdmin()
-            || (
-              exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
-              && ('questionEndsAt' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
-              && request.time >= get(/databases/$(database)/documents/rooms/$(roomId)).data.questionEndsAt + duration.value(3, 's')
-            )
+            !('finishedCount' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+            || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
           );
         allow update, delete: if false;
       }
@@ -573,6 +671,7 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/rooms/$(incoming().roomId))
         && (
           get(/databases/$(database)/documents/rooms/$(incoming().roomId)).data.hostId == request.auth.uid
+          || get(/databases/$(database)/documents/rooms/$(incoming().roomId)).data.status == 'FINISHED'
           || isAdmin()
         );
       allow update, delete: if false;
@@ -585,7 +684,8 @@ service cloud.firestore {
         && isValidUserResult(incoming(), resultId)
         && resultId == (incoming().roomId + '_' + request.auth.uid)
         && incoming().finishedAt == request.time
-        && exists(/databases/$(database)/documents/rooms/$(incoming().roomId)/participants/$(request.auth.uid));
+        && exists(/databases/$(database)/documents/rooms/$(incoming().roomId)/participants/$(request.auth.uid))
+        && get(/databases/$(database)/documents/rooms/$(incoming().roomId)/participants/$(request.auth.uid)).data.status == 'FINISHED';
       allow update, delete: if false;
     }
 
