@@ -46,3 +46,39 @@ export async function verifyFirebaseRequest(
     return null;
   }
 }
+
+export async function hasServerStaffPermission(
+  req: NextRequest,
+  user: VerifiedFirebaseUser,
+  permissionKey: 'canViewReserved' | 'canAdmin' | 'canAnnounce'
+): Promise<boolean> {
+  if (!user.email || !user.emailVerified) return false;
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+  const idToken = authHeader.slice(7).trim();
+  if (!idToken) return false;
+
+  const emailKey = user.email.trim().toLowerCase();
+  const dbId = firebaseConfig.firestoreDatabaseId || '(default)';
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+    firebaseConfig.projectId
+  )}/databases/${encodeURIComponent(dbId)}/documents/staff_permissions/${encodeURIComponent(
+    emailKey
+  )}`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${idToken}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      fields?: Record<string, { booleanValue?: boolean }>;
+    };
+    const isActive = data.fields?.active?.booleanValue === true;
+    const hasPerm = data.fields?.[permissionKey]?.booleanValue === true;
+    return isActive && hasPerm;
+  } catch {
+    return false;
+  }
+}

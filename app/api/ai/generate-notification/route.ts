@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyFirebaseRequest } from '@/lib/server/auth';
+import {
+  hasServerStaffPermission,
+  verifyFirebaseRequest,
+} from '@/lib/server/auth';
 import { generateAiBroadcastContent } from '@/lib/server/gemini';
 import { isAppOwnerEmail } from '@/lib/url-safety';
 
@@ -13,9 +16,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!isAppOwnerEmail(user.email) || !user.emailVerified) {
+    const isOwner = Boolean(isAppOwnerEmail(user.email) && user.emailVerified);
+    const canDelegatedAnnounce =
+      isOwner || (await hasServerStaffPermission(req, user, 'canAnnounce'));
+
+    if (!canDelegatedAnnounce) {
       return NextResponse.json(
-        { error: 'Acesso reservado exclusivamente ao dono da aplicação.' },
+        { error: 'Acesso reservado ao dono da aplicação ou emails autorizados a anunciar.' },
         { status: 403 }
       );
     }

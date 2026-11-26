@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { verifyTotpCookieValue } from '@/lib/server/crypto';
-import { TOTP_COOKIE_NAME } from '../verify/route';
+import { TOTP_COOKIE_NAME } from '@/lib/server/totp';
 
 export async function GET(req: NextRequest) {
   const user = await verifyFirebaseRequest(req);

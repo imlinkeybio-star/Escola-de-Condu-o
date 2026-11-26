@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+export const TOTP_COOKIE_NAME = 'escola_2fa_session';
 
 export function encodeBase32(buf: Buffer): string {
   let bits = 0;

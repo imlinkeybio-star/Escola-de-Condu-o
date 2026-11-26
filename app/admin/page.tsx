@@ -41,7 +41,8 @@ import {
 import { SIGN_LABELS } from '@/components/TrafficSignDisplay';
 
 export default function AdminPage() {
-  const { user, profile, isAdmin, isOwner, loading } = useAuth();
+  const { user, profile, isAdmin, isOwner, canViewReserved, canAnnounce, loading } =
+    useAuth();
   const [tab, setTab] = useState<'salas' | 'utilizadores' | 'perguntas' | 'auditoria'>('salas');
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
@@ -69,8 +70,11 @@ export default function AdminPage() {
     useState<CompetitionRoom | null>(null);
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
 
+  const canAccessAdminPage = isOwner || isAdmin || canViewReserved;
+  const canMutateAdmin = isOwner || isAdmin;
+
   useEffect(() => {
-    if (!user || !isAdmin) return;
+    if (!user || !canAccessAdminPage) return;
     const unsubRooms = onSnapshot(
       query(collection(db, 'rooms'), orderBy('createdAt', 'desc'), limit(25)),
       (snap) => setRooms(snap.docs.map((d) => d.data() as CompetitionRoom)),
@@ -103,17 +107,17 @@ export default function AdminPage() {
       unsubBank();
       unsubAudit();
     };
-  }, [user, isAdmin]);
+  }, [user, canAccessAdminPage]);
 
-  if (!loading && !isAdmin) {
+  if (!loading && !canAccessAdminPage) {
     return (
       <AppShell title="Administração">
         <div className="bg-[#111520] border border-red-500/30 rounded-2xl p-8 text-center space-y-3">
           <Shield className="w-10 h-10 text-red-500 mx-auto" />
           <h2 className="text-xl font-bold text-white">Acesso Restrito</h2>
           <p className="text-sm text-slate-400">
-            Esta área é reservada exclusivamente aos administradores autorizados
-            da plataforma.
+            Esta tela reservada aparece apenas para o proprietário
+            (kordelmauvesp@gmail.com) e emails autorizados.
           </p>
           <Link
             href="/dashboard"
@@ -232,23 +236,44 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Owner Ads & AI Notifications Shortcut */}
-        {isOwner && (
+        {/* Read-Only Banner for View-Only Staff */}
+        {!canMutateAdmin && canAccessAdminPage && (
+          <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-4 text-xs sm:text-sm text-sky-200">
+            <strong>Modo de Visualização:</strong> o teu email tem permissão para
+            consultar estas telas reservadas, mas não para alterar ou eliminar
+            registos.
+          </div>
+        )}
+
+        {/* Owner & Authorized Staff Shortcuts */}
+        {(isOwner || canAnnounce) && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                Área Exclusiva do Dono da App
+                {isOwner ? 'Controlo Exclusivo do Dono' : 'Permissão de Anúncios'}
               </p>
               <p className="text-sm font-semibold text-white">
-                Gerir Notificações IA, Links e Anúncios (10s / 15min)
+                {isOwner
+                  ? 'Gerir Emails Permitidos, Notificações IA e Anúncios'
+                  : 'Gerir Notificações IA, Links e Anúncios (10s / 15min)'}
               </p>
             </div>
-            <Link
-              href="/dono-anuncios"
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold text-center whitespace-nowrap shrink-0"
-            >
-              Abrir Painel de Anúncios
-            </Link>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {isOwner && (
+                <Link
+                  href="/permissoes"
+                  className="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/20 text-white text-xs font-bold text-center whitespace-nowrap"
+                >
+                  Emails & Permissões
+                </Link>
+              )}
+              <Link
+                href="/dono-anuncios"
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold text-center whitespace-nowrap"
+              >
+                Abrir Painel de Anúncios
+              </Link>
+            </div>
           </div>
         )}
 
@@ -278,10 +303,11 @@ export default function AdminPage() {
 
         {tab === 'salas' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <form
-              onSubmit={handleAdminCreateRoom}
-              className="lg:col-span-5 bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 h-fit"
-            >
+            {canMutateAdmin && (
+              <form
+                onSubmit={handleAdminCreateRoom}
+                className="lg:col-span-5 bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 h-fit"
+              >
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <PlusCircle className="w-4 h-4 text-red-500" />
                 Criar Concurso Oficial
@@ -328,8 +354,13 @@ export default function AdminPage() {
                   : 'Disponibilizar Sala'}
               </button>
             </form>
+            )}
 
-            <div className="lg:col-span-7 bg-[#111520] border border-white/[0.08] rounded-2xl divide-y divide-white/[0.06]">
+            <div
+              className={`${
+                canMutateAdmin ? 'lg:col-span-7' : 'lg:col-span-12'
+              } bg-[#111520] border border-white/[0.08] rounded-2xl divide-y divide-white/[0.06]`}
+            >
               {rooms.map((r) => (
                 <div
                   key={r.roomId}
@@ -351,15 +382,17 @@ export default function AdminPage() {
                     >
                       Abrir
                     </Link>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteRoom(r)}
-                      aria-label={`Eliminar sala ${r.title}`}
-                      className="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-300 inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Eliminar
-                    </button>
+                    {canMutateAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteRoom(r)}
+                        aria-label={`Eliminar sala ${r.title}`}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-300 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Eliminar
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -391,16 +424,17 @@ export default function AdminPage() {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    toggleUserDisabledStatus(u.uid, !u.disabled)
-                  }
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                    u.disabled
-                      ? 'bg-emerald-600/20 text-emerald-300'
-                      : 'bg-red-600/20 text-red-300'
-                  }`}
-                >
+                {canMutateAdmin && (
+                  <button
+                    onClick={() =>
+                      toggleUserDisabledStatus(u.uid, !u.disabled)
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      u.disabled
+                        ? 'bg-emerald-600/20 text-emerald-300'
+                        : 'bg-red-600/20 text-red-300'
+                    }`}
+                  >
                   {u.disabled ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -413,6 +447,7 @@ export default function AdminPage() {
                     </>
                   )}
                 </button>
+                )}
               </div>
             ))}
           </div>
@@ -420,6 +455,7 @@ export default function AdminPage() {
 
         {tab === 'perguntas' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {canMutateAdmin && (
             <form
               onSubmit={handleAddQuestion}
               className="lg:col-span-5 bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-3"
@@ -512,8 +548,13 @@ export default function AdminPage() {
                 Guardar no Banco Oficial
               </button>
             </form>
+            )}
 
-            <div className="lg:col-span-7 bg-[#111520] border border-white/[0.08] rounded-2xl divide-y divide-white/[0.06]">
+            <div
+              className={`${
+                canMutateAdmin ? 'lg:col-span-7' : 'lg:col-span-12'
+              } bg-[#111520] border border-white/[0.08] rounded-2xl divide-y divide-white/[0.06]`}
+            >
               {bankItems.length === 0 ? (
                 <p className="p-6 text-xs text-slate-400 text-center">
                   Sem perguntas manuais no banco. As salas geram perguntas

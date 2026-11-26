@@ -52,7 +52,7 @@ function formatDate(ts: unknown): string {
 }
 
 export default function NotificacoesPage() {
-  const { user, isOwner } = useAuth();
+  const { user, isOwner, canAnnounce } = useAuth();
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
   const [personal, setPersonal] = useState<NotificationItem[]>([]);
   const [tab, setTab] = useState<'all' | 'broadcasts' | 'personal'>('all');
@@ -137,7 +137,7 @@ export default function NotificacoesPage() {
               plataforma.
             </p>
           </div>
-          {isOwner && (
+          {(isOwner || canAnnounce) && (
             <Link
               href="/dono-anuncios"
               className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center gap-2 whitespace-nowrap shrink-0 self-start sm:self-auto"

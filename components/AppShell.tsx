@@ -70,6 +70,8 @@ export function AppShell({
     privateInfo,
     isAdmin,
     isOwner,
+    canViewReserved,
+    canAnnounce,
     totpChecking,
     totpRequired,
     markTotpVerified,
@@ -159,16 +161,24 @@ export function AppShell({
     { href: '/definicoes', label: 'Definições', icon: Settings },
   ];
 
-  if (isOwner) {
+  if (isOwner || canAnnounce) {
     navItems.push({
       href: '/dono-anuncios',
-      label: 'Anúncios & Notif. (Dono)',
+      label: isOwner ? 'Anúncios & Notif. (Dono)' : 'Anúncios & Notif.',
       icon: Megaphone,
     });
   }
 
-  if (isAdmin) {
+  if (isOwner || isAdmin || canViewReserved) {
     navItems.push({ href: '/admin', label: 'Administração', icon: Shield });
+  }
+
+  if (isOwner) {
+    navItems.push({
+      href: '/permissoes',
+      label: 'Permissões & Equipa',
+      icon: KeyRound,
+    });
   }
 
   const mobileTabs = [

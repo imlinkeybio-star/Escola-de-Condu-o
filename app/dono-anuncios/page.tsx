@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Eye,
   ExternalLink,
+  KeyRound,
   Megaphone,
   PauseCircle,
   PlayCircle,
@@ -24,13 +25,18 @@ import {
 import { auth, db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
+import { StaffPermissionsManager } from '@/components/StaffPermissionsManager';
 import { BroadcastItem, BroadcastKind } from '@/lib/types';
 import {
   createOwnerBroadcast,
   deleteOwnerBroadcast,
   toggleOwnerBroadcastActive,
 } from '@/lib/firestore-service';
-import { APP_OWNER_USERNAME, sanitizeSafeUrl } from '@/lib/url-safety';
+import {
+  APP_OWNER_EMAIL,
+  APP_OWNER_USERNAME,
+  sanitizeSafeUrl,
+} from '@/lib/url-safety';
 
 const KIND_OPTIONS: Array<{ value: BroadcastKind; label: string; desc: string }> = [
   {
@@ -72,8 +78,9 @@ function toMillis(ts: unknown): number {
 }
 
 export default function DonoAnunciosPage() {
-  const { user, isOwner, loading } = useAuth();
+  const { user, isOwner, canAnnounce, loading } = useAuth();
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
+  const [section, setSection] = useState<'anuncios' | 'permissoes'>('anuncios');
 
   // Form states
   const [kind, setKind] = useState<BroadcastKind>('ad_banner');
@@ -93,8 +100,10 @@ export default function DonoAnunciosPage() {
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
 
+  const canAccess = isOwner || canAnnounce;
+
   useEffect(() => {
-    if (!user || !isOwner) return;
+    if (!user || !canAccess) return;
     const q = query(collection(db, 'broadcasts'), limit(50));
     const unsub = onSnapshot(
       q,
@@ -107,19 +116,19 @@ export default function DonoAnunciosPage() {
       (err) => handleFirestoreError(err, OperationType.LIST, 'broadcasts')
     );
     return () => unsub();
-  }, [user, isOwner]);
+  }, [user, canAccess]);
 
-  if (!loading && !isOwner) {
+  if (!loading && !canAccess) {
     return (
-      <AppShell title="Área Reservada ao Dono">
+      <AppShell title="Área Reservada a Anúncios">
         <div className="bg-[#111520] border border-red-500/30 rounded-2xl p-8 text-center space-y-3 max-w-lg mx-auto">
           <ShieldAlert className="w-10 h-10 text-red-500 mx-auto" />
           <h2 className="text-xl font-bold text-white">
-            Acesso Exclusivo do Proprietário
+            Acesso Restrito
           </h2>
           <p className="text-sm text-slate-400">
-            Apenas o dono da aplicação pode criar, definir ou enviar
-            notificações, links e anúncios na plataforma.
+            Apenas {APP_OWNER_EMAIL} e utilizadores com permissão para anunciar
+            podem aceder a esta tela reservada.
           </p>
           <Link
             href="/dashboard"
@@ -212,12 +221,14 @@ export default function DonoAnunciosPage() {
   };
 
   return (
-    <AppShell title="Anúncios & Notificações (Dono)">
+    <AppShell title={isOwner ? 'Anúncios & Notificações (Dono)' : 'Anúncios & Notificações'}>
       <div className="space-y-6 min-w-0">
         <div className="bg-[#111520] border border-amber-500/30 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
-              Área Reservada ao Dono da App · @{APP_OWNER_USERNAME}
+              {isOwner
+                ? `Área Reservada ao Dono da App · @${APP_OWNER_USERNAME}`
+                : 'Área Reservada · Equipa Autorizada a Anunciar'}
             </p>
             <h2 className="font-display text-2xl font-extrabold text-white mt-0.5">
               Gestão de Notificações IA & Anúncios Multimédia
@@ -228,27 +239,70 @@ export default function DonoAnunciosPage() {
               alunos fecharem.
             </p>
           </div>
-          <Link
-            href="/notificacoes"
-            className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold whitespace-nowrap shrink-0 self-start sm:self-auto"
-          >
-            Ver Mural dos Alunos
-          </Link>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {isOwner && (
+              <Link
+                href="/permissoes"
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                Emails & Permissões
+              </Link>
+            )}
+            <Link
+              href="/notificacoes"
+              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold whitespace-nowrap"
+            >
+              Ver Mural dos Alunos
+            </Link>
+          </div>
         </div>
 
-        {feedback && (
-          <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs sm:text-sm text-emerald-200 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{feedback}</span>
-          </div>
-        )}
-        {error && (
-          <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/40 text-xs sm:text-sm text-red-200">
-            {error}
+        {isOwner && (
+          <div className="flex flex-wrap gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
+            <button
+              type="button"
+              onClick={() => setSection('anuncios')}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                section === 'anuncios'
+                  ? 'bg-red-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Anúncios & Notificações
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection('permissoes')}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                section === 'permissoes'
+                  ? 'bg-amber-500 text-slate-950'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Gerir Emails Permitidos
+            </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {isOwner && section === 'permissoes' ? (
+          <StaffPermissionsManager />
+        ) : (
+          <>
+            {feedback && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs sm:text-sm text-emerald-200 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{feedback}</span>
+              </div>
+            )}
+            {error && (
+              <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/40 text-xs sm:text-sm text-red-200">
+                {error}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Creation Form */}
           <form
             onSubmit={handlePublish}
@@ -550,6 +604,8 @@ export default function DonoAnunciosPage() {
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </AppShell>
   );

@@ -306,6 +306,24 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["actorUid", "actorEmail", "action", "targetType", "targetId", "details", "createdAt"]
+    },
+    "StaffPermission": {
+      "title": "StaffPermission",
+      "description": "Delegated email permissions managed exclusively by the app owner.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "label": { "type": "string", "maxLength": 60 },
+        "canViewReserved": { "type": "boolean" },
+        "canAdmin": { "type": "boolean" },
+        "canAnnounce": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "addedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "addedByEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "canViewReserved", "canAdmin", "canAnnounce", "active", "addedByUid", "addedByEmail", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -384,6 +402,10 @@
     "/audit_logs/{logId}": {
       "schema": { "$ref": "#/entities/AuditLog" },
       "description": "Immutable admin audit trail"
+    },
+    "/staff_permissions/{emailKey}": {
+      "schema": { "$ref": "#/entities/StaffPermission" },
+      "description": "Delegated permissions by email managed exclusively by kordelmauvesp@gmail.com"
     }
   }
 }

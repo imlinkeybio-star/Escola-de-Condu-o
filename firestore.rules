@@ -40,6 +40,11 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 200 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidEmailKey(emailKey) {
+      return emailKey is string && emailKey.size() >= 3 && emailKey.size() <= 200
+        && emailKey.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
+    }
+
     function isValidSafeUrl(url) {
       return url is string && url.size() >= 1 && url.size() <= 500
         && (url.matches('^https?://[^\\s]+$') || url.matches('^/[^/].*$'));
@@ -54,15 +59,45 @@ service cloud.firestore {
         );
     }
 
-    function isBootstrappedAdmin() {
+    function isCallerEmailVerified() {
       return isSignedIn()
-        && request.auth.token.email == 'kordelmauvesp@gmail.com'
+        && ('email' in request.auth.token)
+        && request.auth.token.email is string
         && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isCallerEmailVerified()
+        && request.auth.token.email.lower() == 'kordelmauvesp@gmail.com';
+    }
+
+    function hasStaffPermissionDoc() {
+      return isCallerEmailVerified()
+        && exists(/databases/$(database)/documents/staff_permissions/$(request.auth.token.email.lower()));
+    }
+
+    function callerStaffPerm() {
+      return get(/databases/$(database)/documents/staff_permissions/$(request.auth.token.email.lower())).data;
     }
 
     function isAdmin() {
       return isBootstrappedAdmin()
+        || (hasStaffPermissionDoc() && callerStaffPerm().active == true && callerStaffPerm().canAdmin == true)
         || (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function canAnnounce() {
+      return isBootstrappedAdmin()
+        || (hasStaffPermissionDoc() && callerStaffPerm().active == true && callerStaffPerm().canAnnounce == true);
+    }
+
+    function canViewReservedScreens() {
+      return isBootstrappedAdmin()
+        || (hasStaffPermissionDoc() && callerStaffPerm().active == true && (
+          callerStaffPerm().canViewReserved == true
+          || callerStaffPerm().canAdmin == true
+          || callerStaffPerm().canAnnounce == true
+        ));
     }
 
     function isUserNotDisabled(uid) {
@@ -423,6 +458,27 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidStaffPermission(data, emailKey) {
+      return data.keys().hasAll([
+          'email', 'canViewReserved', 'canAdmin', 'canAnnounce',
+          'active', 'addedByUid', 'addedByEmail', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'email', 'label', 'canViewReserved', 'canAdmin', 'canAnnounce',
+          'active', 'addedByUid', 'addedByEmail', 'createdAt', 'updatedAt'
+        ])
+        && data.email is string && data.email == emailKey && isValidEmailKey(data.email)
+        && (!('label' in data) || (data.label is string && data.label.size() <= 60))
+        && data.canViewReserved is bool
+        && data.canAdmin is bool
+        && data.canAnnounce is bool
+        && data.active is bool
+        && data.addedByUid is string && data.addedByUid == request.auth.uid && isValidId(data.addedByUid)
+        && data.addedByEmail is string && data.addedByEmail.size() >= 3 && data.addedByEmail.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // =========================================================================
     // Collections
     // =========================================================================
@@ -435,7 +491,7 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow get: if isSignedIn() && isValidId(uid);
-      allow list: if isSignedIn() && (resource.data.disabled == false || isBootstrappedAdmin());
+      allow list: if isSignedIn() && (resource.data.disabled == false || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(uid) && isOwner(uid)
         && isValidUserProfile(incoming(), uid)
         && incoming().totalPoints == 0
@@ -512,7 +568,7 @@ service cloud.firestore {
       allow list: if isSignedIn() && (
         resource.data.isPublic == true
         || resource.data.hostId == request.auth.uid
-        || isBootstrappedAdmin()
+        || canViewReservedScreens()
       );
       allow create: if isSignedIn() && isValidId(roomId)
         && isUserNotDisabled(request.auth.uid)
@@ -730,7 +786,7 @@ service cloud.firestore {
 
     match /competitions/{competitionId} {
       allow get: if isSignedIn() && isValidId(competitionId);
-      allow list: if isSignedIn() && (resource.data.isPublic == true || isBootstrappedAdmin());
+      allow list: if isSignedIn() && (resource.data.isPublic == true || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(competitionId)
         && isValidCompetitionArchive(incoming(), competitionId)
         && incoming().finishedAt == request.time
@@ -744,8 +800,8 @@ service cloud.firestore {
     }
 
     match /results/{resultId} {
-      allow get: if isSignedIn() && isValidLongId(resultId) && (existing().uid == request.auth.uid || existing().isPublic == true || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.isPublic == true || isBootstrappedAdmin());
+      allow get: if isSignedIn() && isValidLongId(resultId) && (existing().uid == request.auth.uid || existing().isPublic == true || canViewReservedScreens());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.isPublic == true || canViewReservedScreens());
       allow create: if isSignedIn() && isValidLongId(resultId)
         && isValidUserResult(incoming(), resultId)
         && resultId == (incoming().roomId + '_' + request.auth.uid)
@@ -854,25 +910,25 @@ service cloud.firestore {
     }
 
     match /broadcasts/{broadcastId} {
-      allow get: if isSignedIn() && isValidId(broadcastId) && (existing().active == true || isBootstrappedAdmin());
-      allow list: if isSignedIn() && (resource.data.active == true || isBootstrappedAdmin());
-      allow create: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin()
+      allow get: if isSignedIn() && isValidId(broadcastId) && (existing().active == true || canAnnounce() || canViewReservedScreens());
+      allow list: if isSignedIn() && (resource.data.active == true || canAnnounce() || canViewReservedScreens());
+      allow create: if isSignedIn() && isValidId(broadcastId) && canAnnounce()
         && isValidBroadcast(incoming(), broadcastId)
         && incoming().createdByUid == request.auth.uid
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
-      allow update: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin()
+      allow update: if isSignedIn() && isValidId(broadcastId) && canAnnounce()
         && isValidBroadcast(incoming(), broadcastId)
         && incoming().id == existing().id
         && incoming().createdByUid == existing().createdByUid
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time;
-      allow delete: if isSignedIn() && isValidId(broadcastId) && isBootstrappedAdmin();
+      allow delete: if isSignedIn() && isValidId(broadcastId) && canAnnounce();
     }
 
     match /question_bank/{questionId} {
-      allow get: if isSignedIn() && isValidId(questionId) && (existing().active == true || isAdmin());
-      allow list: if isSignedIn() && (resource.data.active == true || isBootstrappedAdmin());
+      allow get: if isSignedIn() && isValidId(questionId) && (existing().active == true || canViewReservedScreens());
+      allow list: if isSignedIn() && (resource.data.active == true || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(questionId) && isAdmin()
         && isValidQuestionBankItem(incoming())
         && incoming().createdAt == request.time;
@@ -888,12 +944,28 @@ service cloud.firestore {
     }
 
     match /audit_logs/{logId} {
-      allow get: if isSignedIn() && isValidId(logId) && isAdmin();
-      allow list: if isSignedIn() && isBootstrappedAdmin();
-      allow create: if isSignedIn() && isValidId(logId) && isAdmin()
+      allow get: if isSignedIn() && isValidId(logId) && canViewReservedScreens();
+      allow list: if isSignedIn() && canViewReservedScreens();
+      allow create: if isSignedIn() && isValidId(logId) && (isAdmin() || canAnnounce())
         && isValidAuditLog(incoming())
         && incoming().createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    match /staff_permissions/{emailKey} {
+      allow get: if isSignedIn() && isValidEmailKey(emailKey)
+        && (isBootstrappedAdmin() || (isCallerEmailVerified() && request.auth.token.email.lower() == emailKey));
+      allow list: if isSignedIn() && isBootstrappedAdmin();
+      allow create: if isSignedIn() && isValidEmailKey(emailKey) && isBootstrappedAdmin()
+        && isValidStaffPermission(incoming(), emailKey)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidEmailKey(emailKey) && isBootstrappedAdmin()
+        && isValidStaffPermission(incoming(), emailKey)
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isSignedIn() && isValidEmailKey(emailKey) && isBootstrappedAdmin();
     }
   }
 }

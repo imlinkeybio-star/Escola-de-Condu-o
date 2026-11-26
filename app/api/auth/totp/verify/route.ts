@@ -5,9 +5,7 @@ import {
   signTotpCookieValue,
   unsealTotpSecret,
 } from '@/lib/server/crypto';
-import { verifyTotpCode } from '@/lib/server/totp';
-
-export const TOTP_COOKIE_NAME = 'escola_2fa_session';
+import { TOTP_COOKIE_NAME, verifyTotpCode } from '@/lib/server/totp';
 
 export async function POST(req: NextRequest) {
   try {

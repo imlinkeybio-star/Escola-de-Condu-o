@@ -30,6 +30,7 @@ import {
   RoomParticipant,
   RoomQuestion,
   RoomRevealedAnswer,
+  StaffPermission,
   UserPrivateInfo,
   UserProfile,
 } from './types';
@@ -43,6 +44,16 @@ import {
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120) || 'id';
+}
+
+export function normalizeEmailKey(raw: string): string {
+  return raw.trim().toLowerCase().slice(0, 200);
+}
+
+export function isValidEmailAddress(email: string): boolean {
+  return /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(
+    normalizeEmailKey(email)
+  );
 }
 
 function generateRoomCode(): string {
@@ -158,9 +169,28 @@ export async function ensureUserProfile(
   return { profile, privateInfo };
 }
 
+export async function fetchMyStaffPermission(
+  user: User | null
+): Promise<StaffPermission | null> {
+  if (!user || !user.email || !user.emailVerified) return null;
+  const emailKey = normalizeEmailKey(user.email);
+  if (!isValidEmailAddress(emailKey)) return null;
+  try {
+    const snap = await getDoc(doc(db, 'staff_permissions', emailKey));
+    if (!snap.exists()) return null;
+    return snap.data() as StaffPermission;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkIsAdmin(user: User | null): Promise<boolean> {
   if (!user) return false;
   if (isAppOwnerEmail(user.email) && user.emailVerified) {
+    return true;
+  }
+  const staff = await fetchMyStaffPermission(user);
+  if (staff && staff.active && staff.canAdmin) {
     return true;
   }
   try {
@@ -1137,6 +1167,21 @@ export async function fetchActivePublicRooms(maxCount = 20): Promise<Competition
   }
 }
 
+async function ensureCanAnnounce(user: User | null): Promise<void> {
+  if (!user || !user.email || !user.emailVerified) {
+    throw new Error(
+      'Sessão verificada necessária. Entra com Google ou verifica o teu email.'
+    );
+  }
+  if (isAppOwnerEmail(user.email)) return;
+  const staff = await fetchMyStaffPermission(user);
+  if (!staff || !staff.active || !staff.canAnnounce) {
+    throw new Error(
+      'Apenas o dono da aplicação ou emails autorizados a anunciar podem gerir anúncios.'
+    );
+  }
+}
+
 export async function createOwnerBroadcast(params: {
   kind: BroadcastKind;
   title: string;
@@ -1151,9 +1196,8 @@ export async function createOwnerBroadcast(params: {
   cooldownMinutes?: number;
 }): Promise<BroadcastItem> {
   const user = auth.currentUser;
-  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
-    throw new Error('Apenas o dono da aplicação pode criar notificações e anúncios.');
-  }
+  await ensureCanAnnounce(user);
+  if (!user) throw new Error('Sessão necessária.');
 
   const safeLink = params.linkUrl?.trim() ? sanitizeSafeUrl(params.linkUrl) : null;
   if (params.linkUrl?.trim() && !safeLink) {
@@ -1207,9 +1251,7 @@ export async function toggleOwnerBroadcastActive(
   active: boolean
 ): Promise<void> {
   const user = auth.currentUser;
-  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
-    throw new Error('Apenas o dono da aplicação pode alterar anúncios.');
-  }
+  await ensureCanAnnounce(user);
   try {
     await updateDoc(doc(db, 'broadcasts', broadcastId), {
       active,
@@ -1222,13 +1264,103 @@ export async function toggleOwnerBroadcastActive(
 
 export async function deleteOwnerBroadcast(broadcastId: string): Promise<void> {
   const user = auth.currentUser;
-  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
-    throw new Error('Apenas o dono da aplicação pode remover anúncios.');
-  }
+  await ensureCanAnnounce(user);
   try {
     await deleteDoc(doc(db, 'broadcasts', broadcastId));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `broadcasts/${broadcastId}`);
+  }
+}
+
+export async function upsertStaffPermission(params: {
+  email: string;
+  label?: string;
+  canViewReserved: boolean;
+  canAdmin: boolean;
+  canAnnounce: boolean;
+  active: boolean;
+}): Promise<StaffPermission> {
+  const user = auth.currentUser;
+  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
+    throw new Error(
+      'Apenas o proprietário principal (kordelmauvesp@gmail.com) pode gerir permissões.'
+    );
+  }
+
+  const emailKey = normalizeEmailKey(params.email);
+  if (!isValidEmailAddress(emailKey)) {
+    throw new Error('Insere um endereço de email válido.');
+  }
+  if (isAppOwnerEmail(emailKey)) {
+    throw new Error(
+      'O email principal do proprietário já possui acesso total permanente.'
+    );
+  }
+
+  const ref = doc(db, 'staff_permissions', emailKey);
+  const existing = await getDoc(ref);
+  const cleanLabel = params.label?.trim().slice(0, 60) || '';
+
+  const payload: Record<string, unknown> = {
+    email: emailKey,
+    canViewReserved: Boolean(params.canViewReserved),
+    canAdmin: Boolean(params.canAdmin),
+    canAnnounce: Boolean(params.canAnnounce),
+    active: Boolean(params.active),
+    addedByUid: user.uid,
+    addedByEmail: (user.email || APP_OWNER_EMAIL).slice(0, 200),
+    createdAt: existing.exists()
+      ? (existing.data() as StaffPermission).createdAt
+      : serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (cleanLabel) {
+    payload.label = cleanLabel;
+  }
+
+  try {
+    await setDoc(ref, payload);
+  } catch (err) {
+    handleFirestoreError(
+      err,
+      existing.exists() ? OperationType.UPDATE : OperationType.CREATE,
+      `staff_permissions/${emailKey}`
+    );
+  }
+
+  await logAdminAudit({
+    action: existing.exists() ? 'UPDATE_STAFF_PERMISSION' : 'ADD_STAFF_PERMISSION',
+    targetType: 'staff_permission',
+    targetId: sanitizeId(emailKey),
+    details: `Permissões para ${emailKey}: ver=${params.canViewReserved}, admin=${params.canAdmin}, anunciar=${params.canAnnounce}, ativo=${params.active}.`,
+  });
+
+  const snap = await getDoc(ref);
+  return snap.data() as StaffPermission;
+}
+
+export async function deleteStaffPermission(email: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !isAppOwnerEmail(user.email) || !user.emailVerified) {
+    throw new Error(
+      'Apenas o proprietário principal pode remover permissões de email.'
+    );
+  }
+  const emailKey = normalizeEmailKey(email);
+  if (!isValidEmailAddress(emailKey)) {
+    throw new Error('Email inválido.');
+  }
+  try {
+    await deleteDoc(doc(db, 'staff_permissions', emailKey));
+    await logAdminAudit({
+      action: 'REMOVE_STAFF_PERMISSION',
+      targetType: 'staff_permission',
+      targetId: sanitizeId(emailKey),
+      details: `Removido acesso reservado do email ${emailKey}.`,
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `staff_permissions/${emailKey}`);
   }
 }
 

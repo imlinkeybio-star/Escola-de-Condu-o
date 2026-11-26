@@ -17,16 +17,22 @@ import { auth, db, googleProvider, testFirestoreConnection } from '@/lib/firebas
 import {
   checkIsAdmin,
   ensureUserProfile,
+  fetchMyStaffPermission,
+  isValidEmailAddress,
+  normalizeEmailKey,
 } from '@/lib/firestore-service';
-import { UserPrivateInfo, UserProfile } from '@/lib/types';
+import { StaffPermission, UserPrivateInfo, UserProfile } from '@/lib/types';
 import { isAppOwnerEmail } from '@/lib/url-safety';
 
 interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   privateInfo: UserPrivateInfo | null;
+  staffPermission: StaffPermission | null;
   isAdmin: boolean;
   isOwner: boolean;
+  canViewReserved: boolean;
+  canAnnounce: boolean;
   loading: boolean;
   authReady: boolean;
   totpVerified: boolean;
@@ -53,20 +59,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [privateInfo, setPrivateInfo] = useState<UserPrivateInfo | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [staffPermission, setStaffPermission] = useState<StaffPermission | null>(
+    null
+  );
+  const [hasLegacyAdminDoc, setHasLegacyAdminDoc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [verifiedTotpUid, setVerifiedTotpUid] = useState<string | null>(null);
   const [checkedTotpUid, setCheckedTotpUid] = useState<string | null>(null);
 
   const loadUserContext = useCallback(async (firebaseUser: User) => {
-    const [{ profile: prof, privateInfo: priv }, adminStatus] = await Promise.all([
-      ensureUserProfile(firebaseUser),
-      checkIsAdmin(firebaseUser),
-    ]);
+    const [{ profile: prof, privateInfo: priv }, adminStatus, staffPerm] =
+      await Promise.all([
+        ensureUserProfile(firebaseUser),
+        checkIsAdmin(firebaseUser),
+        fetchMyStaffPermission(firebaseUser),
+      ]);
     setProfile(prof);
     setPrivateInfo(priv);
-    setIsAdmin(adminStatus);
+    setHasLegacyAdminDoc(adminStatus);
+    setStaffPermission(staffPerm);
   }, []);
 
   useEffect(() => {
@@ -82,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setProfile(null);
         setPrivateInfo(null);
-        setIsAdmin(false);
+        setStaffPermission(null);
+        setHasLegacyAdminDoc(false);
         setVerifiedTotpUid(null);
         setCheckedTotpUid(null);
       }
@@ -117,9 +130,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Non-blocking fallback
       }
     );
+
+    const emailKey =
+      user.email && user.emailVerified ? normalizeEmailKey(user.email) : '';
+    const unsubStaff =
+      emailKey && isValidEmailAddress(emailKey)
+        ? onSnapshot(
+            doc(db, 'staff_permissions', emailKey),
+            (snap) => {
+              setStaffPermission(
+                snap.exists() ? (snap.data() as StaffPermission) : null
+              );
+            },
+            () => {
+              // Non-blocking fallback
+            }
+          )
+        : () => {};
+
     return () => {
       unsubProfile();
       unsubPrivate();
+      unsubStaff();
     };
   }, [user]);
 
@@ -209,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const adminStatus = await checkIsAdmin(cred.user);
       setProfile(prof);
       setPrivateInfo(priv);
-      setIsAdmin(adminStatus);
+      setHasLegacyAdminDoc(adminStatus);
     },
     []
   );
@@ -224,7 +256,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfile(null);
     setPrivateInfo(null);
-    setIsAdmin(false);
+    setStaffPermission(null);
+    setHasLegacyAdminDoc(false);
     setVerifiedTotpUid(null);
     setCheckedTotpUid(null);
   }, []);
@@ -238,6 +271,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isOwner = Boolean(
     user && isAppOwnerEmail(user.email) && user.emailVerified
   );
+  const staffActive = Boolean(
+    user && user.emailVerified && staffPermission?.active
+  );
+  const isAdmin = Boolean(
+    isOwner || hasLegacyAdminDoc || (staffActive && staffPermission?.canAdmin)
+  );
+  const canAnnounce = Boolean(
+    isOwner || (staffActive && staffPermission?.canAnnounce)
+  );
+  const canViewReserved = Boolean(
+    isOwner ||
+      isAdmin ||
+      canAnnounce ||
+      (staffActive && staffPermission?.canViewReserved)
+  );
 
   const totpVerified = !totpEnabled || verifiedTotpUid === user?.uid;
   const totpChecking =
@@ -250,8 +298,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         profile,
         privateInfo,
+        staffPermission,
         isAdmin,
         isOwner,
+        canViewReserved,
+        canAnnounce,
         loading,
         authReady,
         totpVerified,

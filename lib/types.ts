@@ -274,6 +274,19 @@ export interface AuditLog {
   createdAt: unknown;
 }
 
+export interface StaffPermission {
+  email: string;
+  label?: string;
+  canViewReserved: boolean;
+  canAdmin: boolean;
+  canAnnounce: boolean;
+  active: boolean;
+  addedByUid: string;
+  addedByEmail: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
 export const ANGOLA_PROVINCES = [
   'Luanda',
   'Benguela',
