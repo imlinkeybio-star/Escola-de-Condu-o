@@ -1,0 +1,336 @@
+{
+  "entities": {
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Authorized administrator marker document.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public competitive driver profile without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "totalPoints": { "type": "integer" },
+        "wins": { "type": "integer" },
+        "gamesPlayed": { "type": "integer" },
+        "correctAnswers": { "type": "integer" },
+        "totalAnswers": { "type": "integer" },
+        "currentStreak": { "type": "integer" },
+        "bestStreak": { "type": "integer" },
+        "tier": { "type": "string", "enum": ["Aprendiz", "Condutor", "Especialista", "Mestre da Estrada"] },
+        "disabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "totalPoints", "wins", "gamesPlayed", "correctAnswers", "totalAnswers", "currentStreak", "bestStreak", "tier", "disabled", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Strictly isolated PII for a user account.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "drivingSchool": { "type": "string", "maxLength": 120 },
+        "province": { "type": "string", "maxLength": 60 },
+        "voiceEnabled": { "type": "boolean" },
+        "notificationsEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "voiceEnabled", "notificationsEnabled", "updatedAt"]
+    },
+    "CompetitionRoom": {
+      "title": "CompetitionRoom",
+      "description": "Real-time synchronized multiplayer quiz room.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 4, "maxLength": 12, "pattern": "^[A-Z0-9]+$" },
+        "title": { "type": "string", "minLength": 3, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 300 },
+        "hostId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "isPublic": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["WAITING", "STARTING", "PLAYING", "ANSWER_REVEAL", "LEADERBOARD", "FINISHED"] },
+        "maxParticipants": { "type": "integer" },
+        "participantCount": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "timePerQuestion": { "type": "integer" },
+        "pointsPerCorrect": { "type": "integer" },
+        "difficulty": { "type": "string", "enum": ["Iniciante", "Intermédio", "Avançado", "Exame Oficial"] },
+        "category": { "type": "string", "maxLength": 60 },
+        "currentQuestionIndex": { "type": "integer" },
+        "questionStartedAtMs": { "type": "integer" },
+        "questionEndsAtMs": { "type": "integer" },
+        "questionEndsAt": { "type": "string", "format": "date-time" },
+        "roundToken": { "type": "string", "maxLength": 256 },
+        "aiSummary": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "code", "title", "hostId", "hostName", "isPublic", "status", "maxParticipants", "participantCount", "totalQuestions", "timePerQuestion", "pointsPerCorrect", "difficulty", "category", "currentQuestionIndex", "createdAt", "updatedAt"]
+    },
+    "RoomParticipant": {
+      "title": "RoomParticipant",
+      "description": "Live participant state and score inside a room.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "score": { "type": "integer" },
+        "correctCount": { "type": "integer" },
+        "wrongCount": { "type": "integer" },
+        "lastScoredQuestionIndex": { "type": "integer" },
+        "online": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "lastActiveAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "roomId", "displayName", "score", "correctCount", "wrongCount", "lastScoredQuestionIndex", "online", "joinedAt", "lastActiveAt"]
+    },
+    "RoomQuestion": {
+      "title": "RoomQuestion",
+      "description": "Public question payload with server-sealed encrypted answer.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "questionIndex": { "type": "integer" },
+        "questionText": { "type": "string", "minLength": 5, "maxLength": 500 },
+        "options": { "type": "array" },
+        "category": { "type": "string", "maxLength": 80 },
+        "difficulty": { "type": "string", "maxLength": 40 },
+        "signType": { "type": "string", "maxLength": 60 },
+        "sealedPayload": { "type": "string", "maxLength": 4000 },
+        "answerCommitment": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "questionIndex", "questionText", "options", "category", "difficulty", "signType", "sealedPayload", "answerCommitment", "createdAt"]
+    },
+    "RoomAnswer": {
+      "title": "RoomAnswer",
+      "description": "Immutable player answer submission timestamped by Firestore server.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "questionIndex": { "type": "integer" },
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "selectedIndex": { "type": "integer" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "questionIndex", "uid", "displayName", "selectedIndex", "submittedAt"]
+    },
+    "RoomRevealedAnswer": {
+      "title": "RoomRevealedAnswer",
+      "description": "Official revealed answer and AI explanation after round closes.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "questionIndex": { "type": "integer" },
+        "correctIndex": { "type": "integer" },
+        "explanation": { "type": "string", "maxLength": 1500 },
+        "legalReference": { "type": "string", "maxLength": 300 },
+        "revealProof": { "type": "string", "maxLength": 256 },
+        "revealedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "questionIndex", "correctIndex", "explanation", "legalReference", "revealProof", "revealedAt"]
+    },
+    "CompetitionArchive": {
+      "title": "CompetitionArchive",
+      "description": "Completed competition summary.",
+      "type": "object",
+      "properties": {
+        "competitionId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 100 },
+        "code": { "type": "string", "maxLength": 12 },
+        "winnerUid": { "type": "string", "maxLength": 128 },
+        "winnerName": { "type": "string", "maxLength": 60 },
+        "winnerScore": { "type": "integer" },
+        "participantCount": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "isPublic": { "type": "boolean" },
+        "finishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["competitionId", "roomId", "title", "code", "winnerUid", "winnerName", "winnerScore", "participantCount", "totalQuestions", "isPublic", "finishedAt"]
+    },
+    "UserResult": {
+      "title": "UserResult",
+      "description": "Individual student performance record for a competition.",
+      "type": "object",
+      "properties": {
+        "resultId": { "type": "string", "maxLength": 200, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomTitle": { "type": "string", "maxLength": 100 },
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 60 },
+        "score": { "type": "integer" },
+        "correctCount": { "type": "integer" },
+        "wrongCount": { "type": "integer" },
+        "accuracy": { "type": "integer" },
+        "rank": { "type": "integer" },
+        "totalParticipants": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "isWinner": { "type": "boolean" },
+        "isPublic": { "type": "boolean" },
+        "finishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["resultId", "roomId", "roomTitle", "uid", "displayName", "score", "correctCount", "wrongCount", "accuracy", "rank", "totalParticipants", "totalQuestions", "isWinner", "isPublic", "finishedAt"]
+    },
+    "RankingEntry": {
+      "title": "RankingEntry",
+      "description": "Aggregated leaderboard entry for global or weekly rankings.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 60 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "points": { "type": "integer" },
+        "wins": { "type": "integer" },
+        "gamesPlayed": { "type": "integer" },
+        "accuracy": { "type": "integer" },
+        "weekKey": { "type": "string", "maxLength": 20 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "points", "wins", "gamesPlayed", "accuracy", "updatedAt"]
+    },
+    "AchievementRecord": {
+      "title": "AchievementRecord",
+      "description": "Unlocked user achievement badge.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "achievementId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 200 },
+        "tier": { "type": "string", "enum": ["bronze", "silver", "gold"] },
+        "unlockedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "achievementId", "title", "description", "tier", "unlockedAt"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "User-targeted competition or achievement notification.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 100 },
+        "body": { "type": "string", "maxLength": 300 },
+        "roomId": { "type": "string", "maxLength": 128 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "title", "body", "read", "createdAt"]
+    },
+    "QuestionBankItem": {
+      "title": "QuestionBankItem",
+      "description": "Admin-managed verified Angola road safety question.",
+      "type": "object",
+      "properties": {
+        "questionText": { "type": "string", "minLength": 5, "maxLength": 500 },
+        "options": { "type": "array" },
+        "correctIndex": { "type": "integer" },
+        "explanation": { "type": "string", "maxLength": 1500 },
+        "legalReference": { "type": "string", "maxLength": 300 },
+        "category": { "type": "string", "maxLength": 80 },
+        "difficulty": { "type": "string", "maxLength": 40 },
+        "signType": { "type": "string", "maxLength": 60 },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["questionText", "options", "correctIndex", "explanation", "legalReference", "category", "difficulty", "signType", "active", "createdBy", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable administrative audit record.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorEmail": { "type": "string", "maxLength": 200 },
+        "action": { "type": "string", "maxLength": 80 },
+        "targetType": { "type": "string", "maxLength": 60 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorEmail", "action", "targetType", "targetId", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Administrator privilege markers"
+    },
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public competitive driver profiles"
+    },
+    "/users/{uid}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Strictly isolated PII and personal settings"
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/CompetitionRoom" },
+      "description": "Multiplayer competition rooms and authoritative game state"
+    },
+    "/rooms/{roomId}/participants/{uid}": {
+      "schema": { "$ref": "#/entities/RoomParticipant" },
+      "description": "Active participants and live scores in a room"
+    },
+    "/rooms/{roomId}/questions/{qIndex}": {
+      "schema": { "$ref": "#/entities/RoomQuestion" },
+      "description": "Public questions with AES-256-GCM sealed answers"
+    },
+    "/rooms/{roomId}/answers/{answerId}": {
+      "schema": { "$ref": "#/entities/RoomAnswer" },
+      "description": "Immutable player answers timestamped by server"
+    },
+    "/rooms/{roomId}/revealed/{qIndex}": {
+      "schema": { "$ref": "#/entities/RoomRevealedAnswer" },
+      "description": "Revealed correct answers and explanations after round closes"
+    },
+    "/competitions/{competitionId}": {
+      "schema": { "$ref": "#/entities/CompetitionArchive" },
+      "description": "Completed competition archives"
+    },
+    "/results/{resultId}": {
+      "schema": { "$ref": "#/entities/UserResult" },
+      "description": "Individual student competition results"
+    },
+    "/global_rankings/{uid}": {
+      "schema": { "$ref": "#/entities/RankingEntry" },
+      "description": "All-time global driver leaderboard"
+    },
+    "/weekly_rankings/{entryId}": {
+      "schema": { "$ref": "#/entities/RankingEntry" },
+      "description": "Weekly leaderboard entries"
+    },
+    "/achievements/{entryId}": {
+      "schema": { "$ref": "#/entities/AchievementRecord" },
+      "description": "Unlocked user achievements"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/NotificationItem" },
+      "description": "User notifications"
+    },
+    "/question_bank/{questionId}": {
+      "schema": { "$ref": "#/entities/QuestionBankItem" },
+      "description": "Admin-managed question bank"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable admin audit trail"
+    }
+  }
+}

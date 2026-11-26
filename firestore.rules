@@ -1,0 +1,696 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global safety net default-deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Boot health check document (contains no sensitive data)
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Helpers
+    // =========================================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidLongId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 200 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'vitubloguista@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isUserNotDisabled(uid) {
+      return !exists(/databases/$(database)/documents/users/$(uid))
+        || get(/databases/$(database)/documents/users/$(uid)).data.disabled == false;
+    }
+
+    // =========================================================================
+    // Validation Blueprints
+    // =========================================================================
+    function isValidAdminMarker(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'grantedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedAt'])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.grantedAt is timestamp;
+    }
+
+    function isValidUserProfile(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'totalPoints', 'wins', 'gamesPlayed',
+          'correctAnswers', 'totalAnswers', 'currentStreak', 'bestStreak',
+          'tier', 'disabled', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'photoURL', 'totalPoints', 'wins', 'gamesPlayed',
+          'correctAnswers', 'totalAnswers', 'currentStreak', 'bestStreak',
+          'tier', 'disabled', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.totalPoints is int && data.totalPoints >= 0 && data.totalPoints <= 10000000
+        && data.wins is int && data.wins >= 0 && data.wins <= 100000
+        && data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 100000
+        && data.correctAnswers is int && data.correctAnswers >= 0 && data.correctAnswers <= 1000000
+        && data.totalAnswers is int && data.totalAnswers >= 0 && data.totalAnswers <= 1000000
+        && data.currentStreak is int && data.currentStreak >= 0 && data.currentStreak <= 10000
+        && data.bestStreak is int && data.bestStreak >= 0 && data.bestStreak <= 10000
+        && data.tier in ['Aprendiz', 'Condutor', 'Especialista', 'Mestre da Estrada']
+        && data.disabled is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'drivingSchool', 'province', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && (!('drivingSchool' in data) || (data.drivingSchool is string && data.drivingSchool.size() <= 120))
+        && (!('province' in data) || (data.province is string && data.province.size() <= 60))
+        && data.voiceEnabled is bool
+        && data.notificationsEnabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoom(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'code', 'title', 'hostId', 'hostName', 'isPublic', 'status',
+          'maxParticipants', 'participantCount', 'totalQuestions', 'timePerQuestion',
+          'pointsPerCorrect', 'difficulty', 'category', 'currentQuestionIndex',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId', 'code', 'title', 'description', 'hostId', 'hostName', 'isPublic', 'status',
+          'maxParticipants', 'participantCount', 'totalQuestions', 'timePerQuestion',
+          'pointsPerCorrect', 'difficulty', 'category', 'currentQuestionIndex',
+          'questionStartedAtMs', 'questionEndsAtMs', 'questionEndsAt', 'roundToken',
+          'aiSummary', 'createdAt', 'updatedAt'
+        ])
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && data.code is string && data.code.size() >= 4 && data.code.size() <= 12 && data.code.matches('^[A-Z0-9]+$')
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 100
+        && (!('description' in data) || (data.description is string && data.description.size() <= 300))
+        && data.hostId is string && isValidId(data.hostId)
+        && data.hostName is string && data.hostName.size() >= 2 && data.hostName.size() <= 60
+        && data.isPublic is bool
+        && data.status in ['WAITING', 'STARTING', 'PLAYING', 'ANSWER_REVEAL', 'LEADERBOARD', 'FINISHED']
+        && data.maxParticipants is int && data.maxParticipants >= 2 && data.maxParticipants <= 1000
+        && data.participantCount is int && data.participantCount >= 0 && data.participantCount <= data.maxParticipants
+        && data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 50
+        && data.timePerQuestion is int && data.timePerQuestion >= 10 && data.timePerQuestion <= 180
+        && data.pointsPerCorrect is int && data.pointsPerCorrect >= 1 && data.pointsPerCorrect <= 100
+        && data.difficulty in ['Iniciante', 'Intermédio', 'Avançado', 'Exame Oficial']
+        && data.category is string && data.category.size() >= 2 && data.category.size() <= 60
+        && data.currentQuestionIndex is int && data.currentQuestionIndex >= -1 && data.currentQuestionIndex < data.totalQuestions
+        && (!('questionStartedAtMs' in data) || (data.questionStartedAtMs is int && data.questionStartedAtMs >= 0))
+        && (!('questionEndsAtMs' in data) || (data.questionEndsAtMs is int && data.questionEndsAtMs >= 0))
+        && (!('questionEndsAt' in data) || (data.questionEndsAt is timestamp))
+        && (!('roundToken' in data) || (data.roundToken is string && data.roundToken.size() <= 256))
+        && (!('aiSummary' in data) || (data.aiSummary is string && data.aiSummary.size() <= 2000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidParticipant(data, roomId, uid) {
+      return data.keys().hasAll([
+          'uid', 'roomId', 'displayName', 'score', 'correctCount',
+          'wrongCount', 'lastScoredQuestionIndex', 'online', 'joinedAt', 'lastActiveAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'roomId', 'displayName', 'photoURL', 'score', 'correctCount',
+          'wrongCount', 'lastScoredQuestionIndex', 'online', 'joinedAt', 'lastActiveAt'
+        ])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.score is int && data.score >= 0 && data.score <= 10000
+        && data.correctCount is int && data.correctCount >= 0 && data.correctCount <= 100
+        && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 100
+        && data.lastScoredQuestionIndex is int && data.lastScoredQuestionIndex >= -1 && data.lastScoredQuestionIndex <= 50
+        && data.online is bool
+        && data.joinedAt is timestamp
+        && data.lastActiveAt is timestamp;
+    }
+
+    function isValidRoomQuestion(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'questionIndex', 'questionText', 'options', 'category',
+          'difficulty', 'signType', 'sealedPayload', 'answerCommitment', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId', 'questionIndex', 'questionText', 'options', 'category',
+          'difficulty', 'signType', 'sealedPayload', 'answerCommitment', 'createdAt'
+        ])
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
+        && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
+        && data.options is list && data.options.size() == 4 && data.options[0] is string
+        && data.category is string && data.category.size() >= 2 && data.category.size() <= 80
+        && data.difficulty is string && data.difficulty.size() >= 2 && data.difficulty.size() <= 40
+        && data.signType is string && data.signType.size() >= 1 && data.signType.size() <= 60
+        && data.sealedPayload is string && data.sealedPayload.size() >= 10 && data.sealedPayload.size() <= 4000
+        && data.answerCommitment is string && data.answerCommitment.size() >= 16 && data.answerCommitment.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRoomAnswer(data, roomId) {
+      return data.keys().hasAll(['roomId', 'questionIndex', 'uid', 'displayName', 'selectedIndex', 'submittedAt'])
+        && data.keys().hasOnly(['roomId', 'questionIndex', 'uid', 'displayName', 'selectedIndex', 'submittedAt'])
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
+        && data.uid is string && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
+        && data.selectedIndex is int && data.selectedIndex >= 0 && data.selectedIndex <= 3
+        && data.submittedAt is timestamp;
+    }
+
+    function isValidRevealedAnswer(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'questionIndex', 'correctIndex', 'explanation',
+          'legalReference', 'revealProof', 'revealedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId', 'questionIndex', 'correctIndex', 'explanation',
+          'legalReference', 'revealProof', 'revealedAt'
+        ])
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
+        && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
+        && data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3
+        && data.explanation is string && data.explanation.size() >= 5 && data.explanation.size() <= 1500
+        && data.legalReference is string && data.legalReference.size() >= 2 && data.legalReference.size() <= 300
+        && data.revealProof is string && data.revealProof.size() >= 16 && data.revealProof.size() <= 256
+        && data.revealedAt is timestamp;
+    }
+
+    function isValidScoreStep(roomId, uid, inc, ex) {
+      let room = get(/databases/$(database)/documents/rooms/$(roomId)).data;
+      let qIdx = room.currentQuestionIndex;
+      let revealed = get(/databases/$(database)/documents/rooms/$(roomId)/revealed/$(string(qIdx))).data;
+      let ansPath = /databases/$(database)/documents/rooms/$(roomId)/answers/$(string(qIdx) + '_' + uid);
+      let isCorrect = exists(ansPath) && get(ansPath).data.selectedIndex == revealed.correctIndex;
+      return (room.status == 'ANSWER_REVEAL' || room.status == 'LEADERBOARD')
+        && inc.lastScoredQuestionIndex == qIdx
+        && ex.lastScoredQuestionIndex == qIdx - 1
+        && (
+          isCorrect
+            ? (inc.score == ex.score + room.pointsPerCorrect && inc.correctCount == ex.correctCount + 1 && inc.wrongCount == ex.wrongCount)
+            : (inc.score == ex.score && inc.correctCount == ex.correctCount && inc.wrongCount == ex.wrongCount + 1)
+        );
+    }
+
+    function isValidCompetitionArchive(data, competitionId) {
+      return data.keys().hasAll([
+          'competitionId', 'roomId', 'title', 'code', 'winnerUid', 'winnerName',
+          'winnerScore', 'participantCount', 'totalQuestions', 'isPublic', 'finishedAt'
+        ])
+        && data.keys().hasOnly([
+          'competitionId', 'roomId', 'title', 'code', 'winnerUid', 'winnerName',
+          'winnerScore', 'participantCount', 'totalQuestions', 'isPublic', 'finishedAt'
+        ])
+        && data.competitionId is string && data.competitionId == competitionId && isValidId(data.competitionId)
+        && data.roomId is string && isValidId(data.roomId)
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 100
+        && data.code is string && data.code.size() >= 4 && data.code.size() <= 12
+        && data.winnerUid is string && data.winnerUid.size() <= 128
+        && data.winnerName is string && data.winnerName.size() <= 60
+        && data.winnerScore is int && data.winnerScore >= 0 && data.winnerScore <= 10000
+        && data.participantCount is int && data.participantCount >= 0 && data.participantCount <= 1000
+        && data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 50
+        && data.isPublic is bool
+        && data.finishedAt is timestamp;
+    }
+
+    function isValidUserResult(data, resultId) {
+      return data.keys().hasAll([
+          'resultId', 'roomId', 'roomTitle', 'uid', 'displayName', 'score',
+          'correctCount', 'wrongCount', 'accuracy', 'rank', 'totalParticipants',
+          'totalQuestions', 'isWinner', 'isPublic', 'finishedAt'
+        ])
+        && data.keys().hasOnly([
+          'resultId', 'roomId', 'roomTitle', 'uid', 'displayName', 'score',
+          'correctCount', 'wrongCount', 'accuracy', 'rank', 'totalParticipants',
+          'totalQuestions', 'isWinner', 'isPublic', 'finishedAt'
+        ])
+        && data.resultId is string && data.resultId == resultId && isValidLongId(data.resultId)
+        && data.roomId is string && isValidId(data.roomId)
+        && data.roomTitle is string && data.roomTitle.size() >= 3 && data.roomTitle.size() <= 100
+        && data.uid is string && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
+        && data.score is int && data.score >= 0 && data.score <= 10000
+        && data.correctCount is int && data.correctCount >= 0 && data.correctCount <= 100
+        && data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= 100
+        && data.accuracy is int && data.accuracy >= 0 && data.accuracy <= 100
+        && data.rank is int && data.rank >= 1 && data.rank <= 1000
+        && data.totalParticipants is int && data.totalParticipants >= 1 && data.totalParticipants <= 1000
+        && data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 50
+        && data.isWinner is bool
+        && data.isPublic is bool
+        && data.finishedAt is timestamp;
+    }
+
+    function isValidRankingEntry(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'points', 'wins', 'gamesPlayed', 'accuracy', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'points', 'wins', 'gamesPlayed', 'accuracy', 'weekKey', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 60
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
+        && data.points is int && data.points >= 0 && data.points <= 10000000
+        && data.wins is int && data.wins >= 0 && data.wins <= 100000
+        && data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 100000
+        && data.accuracy is int && data.accuracy >= 0 && data.accuracy <= 100
+        && (!('weekKey' in data) || (data.weekKey is string && data.weekKey.size() <= 20))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAchievement(data) {
+      return data.keys().hasAll(['uid', 'achievementId', 'title', 'description', 'tier', 'unlockedAt'])
+        && data.keys().hasOnly(['uid', 'achievementId', 'title', 'description', 'tier', 'unlockedAt'])
+        && data.uid is string && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.achievementId is string && isValidId(data.achievementId)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 80
+        && data.description is string && data.description.size() >= 4 && data.description.size() <= 200
+        && data.tier in ['bronze', 'silver', 'gold']
+        && data.unlockedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['uid', 'title', 'body', 'read', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'title', 'body', 'roomId', 'read', 'createdAt'])
+        && data.uid is string && isValidId(data.uid)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 100
+        && data.body is string && data.body.size() >= 2 && data.body.size() <= 300
+        && (!('roomId' in data) || (data.roomId is string && data.roomId.size() <= 128))
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidQuestionBankItem(data) {
+      return data.keys().hasAll([
+          'questionText', 'options', 'correctIndex', 'explanation', 'legalReference',
+          'category', 'difficulty', 'signType', 'active', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'questionText', 'options', 'correctIndex', 'explanation', 'legalReference',
+          'category', 'difficulty', 'signType', 'active', 'createdBy', 'createdAt'
+        ])
+        && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
+        && data.options is list && data.options.size() == 4 && data.options[0] is string
+        && data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3
+        && data.explanation is string && data.explanation.size() >= 5 && data.explanation.size() <= 1500
+        && data.legalReference is string && data.legalReference.size() >= 2 && data.legalReference.size() <= 300
+        && data.category is string && data.category.size() >= 2 && data.category.size() <= 80
+        && data.difficulty is string && data.difficulty.size() >= 2 && data.difficulty.size() <= 40
+        && data.signType is string && data.signType.size() >= 1 && data.signType.size() <= 60
+        && data.active is bool
+        && data.createdBy is string && data.createdBy == request.auth.uid
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['actorUid', 'actorEmail', 'action', 'targetType', 'targetId', 'details', 'createdAt'])
+        && data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'targetType', 'targetId', 'details', 'createdAt'])
+        && data.actorUid is string && data.actorUid == request.auth.uid && isValidId(data.actorUid)
+        && data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 200
+        && data.action is string && data.action.size() >= 2 && data.action.size() <= 80
+        && data.targetType is string && data.targetType.size() >= 2 && data.targetType.size() <= 60
+        && data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128
+        && data.details is string && data.details.size() >= 2 && data.details.size() <= 1000
+        && data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collections
+    // =========================================================================
+    match /admins/{uid} {
+      allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isSignedIn() && isBootstrappedAdmin();
+      allow create: if isSignedIn() && isValidId(uid) && isAdmin() && isValidAdminMarker(incoming(), uid) && incoming().grantedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow get: if isSignedIn() && isValidId(uid);
+      allow list: if isSignedIn() && (resource.data.disabled == false || isBootstrappedAdmin());
+      allow create: if isSignedIn() && isValidId(uid) && isOwner(uid)
+        && isValidUserProfile(incoming(), uid)
+        && incoming().totalPoints == 0
+        && incoming().wins == 0
+        && incoming().gamesPlayed == 0
+        && incoming().correctAnswers == 0
+        && incoming().totalAnswers == 0
+        && incoming().currentStreak == 0
+        && incoming().bestStreak == 0
+        && incoming().tier == 'Aprendiz'
+        && incoming().disabled == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(uid) && isValidUserProfile(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            isOwner(uid) && existing().disabled == false && incoming().disabled == false
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])
+          )
+          || (
+            isOwner(uid) && existing().disabled == false && incoming().disabled == false
+            && incoming().totalPoints >= existing().totalPoints
+            && incoming().totalPoints <= existing().totalPoints + 500
+            && incoming().gamesPlayed == existing().gamesPlayed + 1
+            && incoming().wins >= existing().wins && incoming().wins <= existing().wins + 1
+            && incoming().correctAnswers >= existing().correctAnswers
+            && incoming().totalAnswers >= existing().totalAnswers
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'totalPoints', 'wins', 'gamesPlayed', 'correctAnswers', 'totalAnswers',
+              'currentStreak', 'bestStreak', 'tier', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+
+      // Strictly isolated PII subcollection
+      match /private/info {
+        allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+        allow list: if false;
+        allow create: if isSignedIn() && isValidId(uid) && isOwner(uid)
+          && isValidUserPrivateInfo(incoming(), uid)
+          && incoming().updatedAt == request.time;
+        allow update: if isSignedIn() && isValidId(uid) && isOwner(uid)
+          && isValidUserPrivateInfo(incoming(), uid)
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'email', 'drivingSchool', 'province', 'voiceEnabled', 'notificationsEnabled', 'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+    }
+
+    match /rooms/{roomId} {
+      allow get: if isSignedIn() && isValidId(roomId);
+      allow list: if isSignedIn() && (
+        resource.data.isPublic == true
+        || resource.data.hostId == request.auth.uid
+        || isBootstrappedAdmin()
+      );
+      allow create: if isSignedIn() && isValidId(roomId)
+        && isUserNotDisabled(request.auth.uid)
+        && isValidRoom(incoming(), roomId)
+        && incoming().hostId == request.auth.uid
+        && incoming().status == 'WAITING'
+        && incoming().participantCount == 0
+        && incoming().currentQuestionIndex == -1
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(roomId)
+        && isUserNotDisabled(request.auth.uid)
+        && isValidRoom(incoming(), roomId)
+        && incoming().roomId == existing().roomId
+        && incoming().hostId == existing().hostId
+        && incoming().code == existing().code
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().status != 'FINISHED'
+            && existing().hostId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'currentQuestionIndex', 'questionStartedAtMs',
+              'questionEndsAtMs', 'questionEndsAt', 'roundToken', 'aiSummary', 'updatedAt'
+            ])
+          )
+          || (
+            existing().status != 'FINISHED'
+            && (incoming().participantCount == existing().participantCount + 1 || incoming().participantCount == existing().participantCount - 1)
+            && incoming().participantCount >= 0
+            && incoming().participantCount <= existing().maxParticipants
+            && incoming().diff(existing()).affectedKeys().hasOnly(['participantCount', 'updatedAt'])
+          )
+          || (
+            existing().status == 'PLAYING'
+            && ('questionEndsAt' in existing())
+            && request.time >= existing().questionEndsAt + duration.value(3, 's')
+            && incoming().status == 'ANSWER_REVEAL'
+            && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(roomId) && isAdmin();
+
+      match /participants/{uid} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(uid);
+        allow list: if isSignedIn() && resource.data.roomId == roomId;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(uid)
+          && isOwner(uid)
+          && isUserNotDisabled(uid)
+          && isValidParticipant(incoming(), roomId, uid)
+          && incoming().score == 0
+          && incoming().correctCount == 0
+          && incoming().wrongCount == 0
+          && incoming().lastScoredQuestionIndex == -1
+          && incoming().joinedAt == request.time
+          && incoming().lastActiveAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status in ['WAITING', 'STARTING', 'PLAYING'];
+        allow update: if isSignedIn() && isValidId(roomId) && isValidId(uid)
+          && isValidParticipant(incoming(), roomId, uid)
+          && incoming().uid == existing().uid
+          && incoming().roomId == existing().roomId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().lastActiveAt == request.time
+          && (
+            isAdmin()
+            || (
+              isOwner(uid)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['online', 'lastActiveAt'])
+            )
+            || (
+              isOwner(uid)
+              && isValidScoreStep(roomId, uid, incoming(), existing())
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'score', 'correctCount', 'wrongCount', 'lastScoredQuestionIndex', 'lastActiveAt'
+              ])
+            )
+          );
+        allow delete: if isSignedIn() && isValidId(roomId) && isValidId(uid) && (isOwner(uid) || isAdmin());
+      }
+
+      match /questions/{qIndex} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(qIndex);
+        allow list: if isSignedIn() && resource.data.roomId == roomId;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(qIndex)
+          && isValidRoomQuestion(incoming(), roomId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && (
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid
+            || isAdmin()
+          );
+        allow update, delete: if false;
+      }
+
+      match /answers/{answerId} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(answerId);
+        allow list: if isSignedIn() && resource.data.roomId == roomId;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(answerId)
+          && isUserNotDisabled(request.auth.uid)
+          && isValidRoomAnswer(incoming(), roomId)
+          && incoming().submittedAt == request.time
+          && answerId == (string(incoming().questionIndex) + '_' + request.auth.uid)
+          && exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.status == 'PLAYING'
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.currentQuestionIndex == incoming().questionIndex
+          && ('questionEndsAt' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+          && request.time <= get(/databases/$(database)/documents/rooms/$(roomId)).data.questionEndsAt;
+        allow update, delete: if false;
+      }
+
+      match /revealed/{qIndex} {
+        allow get: if isSignedIn() && isValidId(roomId) && isValidId(qIndex);
+        allow list: if isSignedIn() && resource.data.roomId == roomId;
+        allow create: if isSignedIn() && isValidId(roomId) && isValidId(qIndex)
+          && isValidRevealedAnswer(incoming(), roomId)
+          && incoming().revealedAt == request.time
+          && qIndex == string(incoming().questionIndex)
+          && exists(/databases/$(database)/documents/rooms/$(roomId))
+          && (
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid
+            || isAdmin()
+            || (
+              exists(/databases/$(database)/documents/rooms/$(roomId)/participants/$(request.auth.uid))
+              && ('questionEndsAt' in get(/databases/$(database)/documents/rooms/$(roomId)).data)
+              && request.time >= get(/databases/$(database)/documents/rooms/$(roomId)).data.questionEndsAt + duration.value(3, 's')
+            )
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    match /competitions/{competitionId} {
+      allow get: if isSignedIn() && isValidId(competitionId);
+      allow list: if isSignedIn() && (resource.data.isPublic == true || isBootstrappedAdmin());
+      allow create: if isSignedIn() && isValidId(competitionId)
+        && isValidCompetitionArchive(incoming(), competitionId)
+        && incoming().finishedAt == request.time
+        && exists(/databases/$(database)/documents/rooms/$(incoming().roomId))
+        && (
+          get(/databases/$(database)/documents/rooms/$(incoming().roomId)).data.hostId == request.auth.uid
+          || isAdmin()
+        );
+      allow update, delete: if false;
+    }
+
+    match /results/{resultId} {
+      allow get: if isSignedIn() && isValidLongId(resultId) && (existing().uid == request.auth.uid || existing().isPublic == true || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.isPublic == true || isBootstrappedAdmin());
+      allow create: if isSignedIn() && isValidLongId(resultId)
+        && isValidUserResult(incoming(), resultId)
+        && resultId == (incoming().roomId + '_' + request.auth.uid)
+        && incoming().finishedAt == request.time
+        && exists(/databases/$(database)/documents/rooms/$(incoming().roomId)/participants/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+
+    match /global_rankings/{uid} {
+      allow get: if isSignedIn() && isValidId(uid);
+      allow list: if isSignedIn() && resource.data.points >= 0;
+      allow create: if isSignedIn() && isValidId(uid) && isOwner(uid)
+        && isValidRankingEntry(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(uid)
+        && isValidRankingEntry(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            isOwner(uid)
+            && incoming().points >= existing().points
+            && incoming().points <= existing().points + 500
+            && incoming().gamesPlayed == existing().gamesPlayed + 1
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'points', 'wins', 'gamesPlayed', 'accuracy', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /weekly_rankings/{entryId} {
+      allow get: if isSignedIn() && isValidLongId(entryId);
+      allow list: if isSignedIn() && resource.data.points >= 0;
+      allow create: if isSignedIn() && isValidLongId(entryId)
+        && isValidRankingEntry(incoming())
+        && ('weekKey' in incoming())
+        && entryId == (incoming().weekKey + '_' + request.auth.uid)
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidLongId(entryId)
+        && isValidRankingEntry(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().uid == request.auth.uid
+            && incoming().points >= existing().points
+            && incoming().points <= existing().points + 500
+            && incoming().gamesPlayed == existing().gamesPlayed + 1
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'points', 'wins', 'gamesPlayed', 'accuracy', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /achievements/{entryId} {
+      allow get: if isSignedIn() && isValidLongId(entryId);
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && isValidLongId(entryId)
+        && isValidAchievement(incoming())
+        && entryId == (request.auth.uid + '_' + incoming().achievementId)
+        && incoming().unlockedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && (incoming().uid == request.auth.uid || isAdmin())
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && isValidId(notificationId) && existing().uid == request.auth.uid;
+    }
+
+    match /question_bank/{questionId} {
+      allow get: if isSignedIn() && isValidId(questionId) && (existing().active == true || isAdmin());
+      allow list: if isSignedIn() && (resource.data.active == true || isBootstrappedAdmin());
+      allow create: if isSignedIn() && isValidId(questionId) && isAdmin()
+        && isValidQuestionBankItem(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(questionId) && isAdmin()
+        && isValidQuestionBankItem(incoming())
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'questionText', 'options', 'correctIndex', 'explanation', 'legalReference',
+          'category', 'difficulty', 'signType', 'active'
+        ]);
+      allow delete: if isSignedIn() && isValidId(questionId) && isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && isAdmin();
+      allow list: if isSignedIn() && isBootstrappedAdmin();
+      allow create: if isSignedIn() && isValidId(logId) && isAdmin()
+        && isValidAuditLog(incoming())
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}

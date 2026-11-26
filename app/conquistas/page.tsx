@@ -1,0 +1,110 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { Award, CheckCircle2, Lock } from 'lucide-react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
+import { useAuth } from '@/components/AuthProvider';
+import { AppShell } from '@/components/AppShell';
+import { AchievementRecord, ACHIEVEMENTS_CATALOG } from '@/lib/types';
+
+export default function ConquistasPage() {
+  const { user } = useAuth();
+  const [unlocked, setUnlocked] = useState<AchievementRecord[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'achievements'),
+      where('uid', '==', user.uid)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => setUnlocked(snap.docs.map((d) => d.data() as AchievementRecord)),
+      (err) => handleFirestoreError(err, OperationType.LIST, 'achievements')
+    );
+    return () => unsub();
+  }, [user]);
+
+  const unlockedSet = new Set(unlocked.map((a) => a.achievementId));
+
+  return (
+    <AppShell title="Conquistas e Troféus">
+      <div className="space-y-6">
+        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-2xl font-extrabold text-white">
+              Galeria de Conquistas
+            </h2>
+            <p className="text-sm text-slate-400">
+              Desbloqueia troféus ao vencer salas, manter sequências e acertar
+              questões do Código de Estrada.
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="font-mono-tabular text-2xl font-extrabold text-amber-400">
+              {unlocked.length}/{ACHIEVEMENTS_CATALOG.length}
+            </p>
+            <p className="text-xs text-slate-400">Desbloqueadas</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {ACHIEVEMENTS_CATALOG.map((ach) => {
+            const isUnlocked = unlockedSet.has(ach.id);
+            const tierBorder =
+              ach.tier === 'gold'
+                ? 'border-amber-400/50'
+                : ach.tier === 'silver'
+                  ? 'border-slate-300/40'
+                  : 'border-orange-500/40';
+            return (
+              <div
+                key={ach.id}
+                className={`rounded-2xl p-5 border space-y-3 ${
+                  isUnlocked
+                    ? `bg-[#111520] ${tierBorder}`
+                    : 'bg-[#0C0F18] border-white/[0.05] opacity-60'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                      isUnlocked
+                        ? ach.tier === 'gold'
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-slate-400/20 text-slate-200'
+                        : 'bg-white/[0.05] text-slate-500'
+                    }`}
+                  >
+                    <Award className="w-6 h-6" />
+                  </div>
+                  {isUnlocked ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Conquistada
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                      <Lock className="w-3.5 h-3.5" />
+                      Bloqueada
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {ach.title}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {ach.description}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </AppShell>
+  );
+}

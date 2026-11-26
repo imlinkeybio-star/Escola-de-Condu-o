@@ -1,0 +1,6 @@
+{
+  "name": "Escola de Condução Live",
+  "description": "Plataforma multijogador em tempo real de competições sobre condução, Código de Estrada de Angola e segurança rodoviária com examinadora virtual por IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

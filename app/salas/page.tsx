@@ -1,0 +1,419 @@
+'use client';
+
+import React, { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  Play,
+  PlusCircle,
+  Radio,
+  Search,
+  Sparkles,
+  Users,
+  X,
+} from 'lucide-react';
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
+import { useAuth } from '@/components/AuthProvider';
+import { AppShell } from '@/components/AppShell';
+import {
+  CompetitionRoom,
+  DifficultyLevel,
+  QUESTION_CATEGORIES,
+} from '@/lib/types';
+import { createCompetitionRoom, findRoomByCode } from '@/lib/firestore-service';
+
+function SalasContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user, profile } = useAuth();
+
+  const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
+  const [filter, setFilter] = useState<'all' | 'active' | 'finished'>('all');
+  const [searchCode, setSearchCode] = useState('');
+  const [showCreate, setShowCreate] = useState(
+    searchParams.get('criar') === '1'
+  );
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+
+  // Create form state
+  const [title, setTitle] = useState('Concurso Código de Estrada Luanda');
+  const [description, setDescription] = useState(
+    'Competição oficial em tempo real com perguntas geradas por Inteligência Artificial.'
+  );
+  const [totalQuestions, setTotalQuestions] = useState(10);
+  const [timePerQuestion, setTimePerQuestion] = useState(60);
+  const [maxParticipants, setMaxParticipants] = useState(100);
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Intermédio');
+  const [category, setCategory] = useState('Geral');
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'rooms'),
+      where('isPublic', '==', true),
+      orderBy('createdAt', 'desc'),
+      limit(30)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setRooms(snap.docs.map((d) => d.data() as CompetitionRoom));
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, 'rooms')
+    );
+    return () => unsub();
+  }, [user]);
+
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile) return;
+    setError('');
+    setCreating(true);
+    try {
+      const room = await createCompetitionRoom({
+        title,
+        description,
+        totalQuestions,
+        timePerQuestion,
+        maxParticipants,
+        difficulty,
+        category,
+        isPublic: true,
+        hostProfile: profile,
+      });
+      setShowCreate(false);
+      router.push(`/sala/${room.roomId}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Erro ao criar sala de competição.'
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleJoinByCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!searchCode.trim()) return;
+    const found = await findRoomByCode(searchCode);
+    if (!found) {
+      setError('Nenhuma sala encontrada com esse código.');
+      return;
+    }
+    router.push(`/sala/${found.roomId}`);
+  };
+
+  const filteredRooms = rooms.filter((r) => {
+    if (filter === 'active') return r.status !== 'FINISHED';
+    if (filter === 'finished') return r.status === 'FINISHED';
+    return true;
+  });
+
+  return (
+    <AppShell title="Salas de Competição ao Vivo">
+      <div className="space-y-6">
+        {/* Top Action Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5">
+          <form onSubmit={handleJoinByCode} className="flex-1 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchCode}
+                onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
+                placeholder="Entrar por código (ex: A7K92B)"
+                className="w-full min-h-[44px] pl-10 pr-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular uppercase focus:outline-none focus:border-red-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer whitespace-nowrap"
+            >
+              Procurar
+            </button>
+          </form>
+
+          <button
+            onClick={() => setShowCreate(true)}
+            className="min-h-[44px] px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Criar Nova Sala (IA)
+          </button>
+        </div>
+
+        {error && (
+          <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/40 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit">
+          {(
+            [
+              { id: 'all', label: 'Todas' },
+              { id: 'active', label: 'Abertas / Em Direto' },
+              { id: 'finished', label: 'Concluídas' },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setFilter(t.id)}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                filter === t.id
+                  ? 'bg-red-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Rooms Grid */}
+        {filteredRooms.length === 0 ? (
+          <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-10 text-center space-y-3">
+            <Radio className="w-8 h-8 text-slate-500 mx-auto" />
+            <h3 className="text-lg font-bold text-white">
+              Sem salas nesta categoria
+            </h3>
+            <p className="text-sm text-slate-400">
+              Cria uma nova sala e a Inteligência Artificial prepara
+              automaticamente as perguntas sobre o Código de Estrada de Angola.
+            </p>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer"
+            >
+              Criar Sala Agora
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredRooms.map((r) => (
+              <div
+                key={r.roomId}
+                className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 flex flex-col justify-between space-y-4"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono-tabular text-slate-400">
+                      {r.code} · {r.difficulty}
+                    </span>
+                    <span
+                      className={`font-bold ${
+                        r.status === 'FINISHED'
+                          ? 'text-slate-400'
+                          : r.status === 'WAITING'
+                            ? 'text-emerald-400'
+                            : 'text-red-400'
+                      }`}
+                    >
+                      {r.status === 'WAITING'
+                        ? 'Aguarda Início'
+                        : r.status === 'FINISHED'
+                          ? 'Concluída'
+                          : 'Em Direto'}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white leading-snug">
+                    {r.title}
+                  </h3>
+                  <p className="text-xs text-slate-400 line-clamp-2">
+                    {r.description}
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-slate-400" />
+                      {r.participantCount}/{r.maxParticipants}
+                    </span>
+                    <span>
+                      {r.totalQuestions} perguntas · {r.timePerQuestion}s
+                    </span>
+                  </div>
+                  <Link
+                    href={`/sala/${r.roomId}`}
+                    className="w-full min-h-[42px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    {r.status === 'FINISHED' ? 'Ver Resultados' : 'Entrar na Sala'}
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create Room Modal */}
+        {showCreate && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111520] border border-white/15 rounded-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-lg font-bold text-white">
+                    Nova Competição com IA Gemini
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowCreate(false)}
+                  className="p-1.5 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateRoom} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-300">
+                    Nome da Competição
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    minLength={3}
+                    maxLength={100}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-300">
+                    Descrição
+                  </label>
+                  <textarea
+                    rows={2}
+                    maxLength={300}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full p-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Categoria
+                    </label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
+                    >
+                      {QUESTION_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Dificuldade
+                    </label>
+                    <select
+                      value={difficulty}
+                      onChange={(e) =>
+                        setDifficulty(e.target.value as DifficultyLevel)
+                      }
+                      className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
+                    >
+                      <option value="Iniciante">Iniciante</option>
+                      <option value="Intermédio">Intermédio</option>
+                      <option value="Avançado">Avançado</option>
+                      <option value="Exame Oficial">Exame Oficial</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Perguntas
+                    </label>
+                    <input
+                      type="number"
+                      min={3}
+                      max={25}
+                      value={totalQuestions}
+                      onChange={(e) =>
+                        setTotalQuestions(Number(e.target.value))
+                      }
+                      className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Tempo (seg)
+                    </label>
+                    <input
+                      type="number"
+                      min={15}
+                      max={120}
+                      value={timePerQuestion}
+                      onChange={(e) =>
+                        setTimePerQuestion(Number(e.target.value))
+                      }
+                      className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-300">
+                      Máx. Alunos
+                    </label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={1000}
+                      value={maxParticipants}
+                      onChange={(e) =>
+                        setMaxParticipants(Number(e.target.value))
+                      }
+                      className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm cursor-pointer"
+                >
+                  {creating
+                    ? 'A IA Gemini está a gerar e selar as perguntas...'
+                    : 'Criar Sala & Gerar Perguntas'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+export default function SalasPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#07090F]" />}>
+      <SalasContent />
+    </Suspense>
+  );
+}
