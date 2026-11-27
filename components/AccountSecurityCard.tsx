@@ -3,18 +3,23 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   Check,
   Copy,
   KeyRound,
   Lock,
   Mail,
   QrCode,
+  RotateCcw,
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Trash2,
 } from 'lucide-react';
 import {
+  deleteUser,
   EmailAuthProvider,
   linkWithCredential,
   reauthenticateWithCredential,
@@ -24,10 +29,15 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
-import { updateUserProfileDetails } from '@/lib/firestore-service';
+import {
+  deleteUserAccountData,
+  factoryResetUserAccount,
+  updateUserProfileDetails,
+} from '@/lib/firestore-service';
 
 export function AccountSecurityCard() {
-  const { user, privateInfo, refreshProfile, markTotpVerified } = useAuth();
+  const router = useRouter();
+  const { user, privateInfo, refreshProfile, markTotpVerified, logout } = useAuth();
 
   // Password states
   const [currentPassword, setCurrentPassword] = useState('');
@@ -53,6 +63,20 @@ export function AccountSecurityCard() {
   const [totpError, setTotpError] = useState('');
   const [totpSuccess, setTotpSuccess] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
+
+  // Factory reset states
+  const [resetPanelOpen, setResetPanelOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [factoryBusy, setFactoryBusy] = useState(false);
+  const [factoryError, setFactoryError] = useState('');
+  const [factorySuccess, setFactorySuccess] = useState('');
+
+  // Account deletion states
+  const [deletePanelOpen, setDeletePanelOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   if (!user) return null;
 
@@ -303,6 +327,94 @@ export function AccountSecurityCard() {
       setTimeout(() => setCopiedKey(false), 2000);
     } catch {
       // Fallback ignored
+    }
+  };
+
+  const handleFactoryReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setFactoryError('');
+    setFactorySuccess('');
+    if (resetConfirmText.trim().toUpperCase() !== 'ZERAR') {
+      setFactoryError('Escreve ZERAR para confirmar a reposição de fábrica.');
+      return;
+    }
+    setFactoryBusy(true);
+    try {
+      await factoryResetUserAccount(user.uid);
+      await refreshProfile();
+      setResetConfirmText('');
+      setResetPanelOpen(false);
+      setFactorySuccess(
+        'Conta reposta como nova de fábrica! Todos os pontos, jogos, conquistas, histórico e notificações foram zerados.'
+      );
+    } catch (err) {
+      setFactoryError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível repor a conta neste momento.'
+      );
+    } finally {
+      setFactoryBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setDeleteError('');
+    if (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') {
+      setDeleteError(
+        'Escreve ELIMINAR para confirmar a eliminação permanente da conta.'
+      );
+      return;
+    }
+
+    setDeleteBusy(true);
+    try {
+      // Reauthenticate BEFORE removing Firestore documents so Auth deleteUser never fails mid-way
+      const hasGoogle = user.providerData.some(
+        (p) => p.providerId === 'google.com'
+      );
+      if (hasPasswordProvider && user.email && deletePassword) {
+        const cred = EmailAuthProvider.credential(user.email, deletePassword);
+        await reauthenticateWithCredential(user, cred);
+      } else if (hasGoogle) {
+        await reauthenticateWithPopup(user, googleProvider);
+      } else if (hasPasswordProvider) {
+        setDeleteError(
+          'Insere a tua palavra-passe atual para confirmar a eliminação.'
+        );
+        setDeleteBusy(false);
+        return;
+      }
+
+      await deleteUserAccountData(user.uid);
+      await deleteUser(user);
+      await logout().catch(() => {});
+      router.push('/');
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (
+        code === 'auth/wrong-password' ||
+        code === 'auth/invalid-credential'
+      ) {
+        setDeleteError('A palavra-passe atual está incorreta.');
+      } else if (code === 'auth/requires-recent-login') {
+        setDeleteError(
+          'Por segurança, termina a sessão e volta a entrar antes de eliminar a conta.'
+        );
+      } else if (code === 'auth/popup-closed-by-user') {
+        setDeleteError('Confirmação cancelada na janela do Google.');
+      } else {
+        setDeleteError(
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível eliminar a conta.'
+        );
+      }
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -599,6 +711,170 @@ export function AccountSecurityCard() {
             </div>
           </form>
         )}
+      </div>
+
+      {/* Factory Reset & Permanent Account Deletion */}
+      <div className="bg-[#111520] border border-red-500/25 rounded-2xl p-5 sm:p-6 space-y-5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-white">
+              Repor ou Eliminar Conta
+            </h3>
+            <p className="text-xs text-slate-400">
+              Podes zerar todos os teus dados do 0 como conta nova de fábrica ou
+              eliminar permanentemente a tua conta.
+            </p>
+          </div>
+        </div>
+
+        {factoryError && (
+          <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
+            {factoryError}
+          </div>
+        )}
+        {factorySuccess && (
+          <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200 break-words">
+            {factorySuccess}
+          </div>
+        )}
+        {deleteError && (
+          <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
+            {deleteError}
+          </div>
+        )}
+
+        {/* Factory Reset Option */}
+        <div className="p-4 rounded-xl bg-[#090C14] border border-white/10 space-y-3 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-white">
+                Repor Conta como Nova de Fábrica (Zerar Tudo do 0)
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Apaga todo o histórico, pontos, vitórias, sequência, conquistas,
+                rankings e notificações, mantendo o teu acesso atual.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setResetPanelOpen((p) => !p);
+                setDeletePanelOpen(false);
+                setFactoryError('');
+              }}
+              className="min-h-[40px] px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+              {resetPanelOpen ? 'Cancelar' : 'Repor de Fábrica'}
+            </button>
+          </div>
+
+          {resetPanelOpen && (
+            <form
+              onSubmit={handleFactoryReset}
+              className="pt-3 border-t border-white/[0.08] space-y-3"
+            >
+              <label className="block text-xs text-slate-300">
+                Escreve <strong className="text-amber-300">ZERAR</strong> para
+                confirmar que queres reiniciar a conta do zero:
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="ZERAR"
+                  className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={factoryBusy}
+                  className="min-h-[42px] px-4 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+                >
+                  {factoryBusy ? 'A zerar...' : 'Confirmar Reposição Total'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Delete Account Option */}
+        <div className="p-4 rounded-xl bg-[#090C14] border border-red-500/25 space-y-3 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-red-300">
+                Eliminar Conta Permanentemente
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Remove definitivamente o teu perfil, credenciais, histórico,
+                conquistas e classificações da plataforma.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDeletePanelOpen((p) => !p);
+                setResetPanelOpen(false);
+                setDeleteError('');
+              }}
+              className="min-h-[40px] px-4 rounded-xl bg-red-600/25 hover:bg-red-600/40 border border-red-500/40 text-red-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              {deletePanelOpen ? 'Cancelar' : 'Eliminar Minha Conta'}
+            </button>
+          </div>
+
+          {deletePanelOpen && (
+            <form
+              onSubmit={handleDeleteAccount}
+              className="pt-3 border-t border-white/[0.08] space-y-3"
+            >
+              {hasPasswordProvider && (
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">
+                    Palavra-passe atual (verificação de segurança):
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs text-slate-300 mb-1">
+                  Escreve <strong className="text-red-400">ELIMINAR</strong> para
+                  apagar permanentemente a tua conta:
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    type="text"
+                    required
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="ELIMINAR"
+                    className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-red-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={deleteBusy}
+                    className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+                  >
+                    {deleteBusy
+                      ? 'A eliminar...'
+                      : 'Confirmar Eliminação Permanente'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

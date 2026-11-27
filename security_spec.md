@@ -12,6 +12,7 @@
 9. **Bounded Live Profile Increments**: `users/{uid}` permits owner updates either for identity fields or bounded per-question/end-of-game metric increments (`totalAnswers <= existing.totalAnswers + 25`, `correctAnswers <= existing.correctAnswers + 25`, `totalPoints <= existing.totalPoints + 500`, `gamesPlayed <= existing.gamesPlayed + 1`).
 10. **Server-Sealed Google Authenticator TOTP & Host Room Deletion**: 2FA secrets are encrypted server-side with AES-256-GCM bound to `uid` (`totpSealedSecret` in `users/{uid}/private/info`) and verified with `crypto.timingSafeEqual` + `HttpOnly; Secure; SameSite=None; Partitioned` session cookie; rooms can be deleted only by their creator (`hostId`) or an admin (`isAdmin()`).
 11. **Delegated Staff Permissions Isolation**: `staff_permissions/{emailKey}` can be listed, created, updated, or deleted exclusively by `isBootstrappedAdmin()` (`kordelmauvesp@gmail.com` with `email_verified == true`). Delegated staff can only `get` their own document matching `request.auth.token.email.lower() == emailKey` and `email_verified == true`. Granular flags (`canViewReserved`, `canAdmin`, `canAnnounce`, `active`) control read/write visibility of reserved screens (`/admin`, `/dono-anuncios`, `/permissoes`).
+12. **Self-Service Factory Reset, Account Deletion & Atomic Deleted Counter**: Authenticated owners can factory-reset their own `users/{uid}` competitive stats strictly to exact zero defaults (`Aprendiz`) or permanently delete their own `users/{uid}`, `private/info`, `results`, `achievements`, `notifications`, and ranking records. `platform_stats/users_summary.deletedCount` can only increment by `+1` in an atomic batch verified via `!existsAfter(/users/{uid})`.
 
 ## 2. The "Dirty Dozen" Adversarial Payloads
 1. **Identity Spoofing on User Create**: `{ "uid": "victim-uid", "displayName": "Hacker", ... }` by attacker -> `PERMISSION_DENIED`.
@@ -28,3 +29,4 @@
 12. **Tampering with Audit Logs**: Updating or deleting `/audit_logs/{id}` even as admin -> `PERMISSION_DENIED`.
 13. **Self-Granting Staff Permissions**: Non-owner writing `/staff_permissions/{ownEmail}` -> `PERMISSION_DENIED`.
 14. **Privilege Escalation by View-Only Staff**: User with `canViewReserved: true, canAdmin: false, canAnnounce: false` attempting admin write or broadcast creation -> `PERMISSION_DENIED`.
+15. **Deleted Counter Spoofing**: Incrementing `platform_stats/users_summary.deletedCount` without deleting `/users/{request.auth.uid}` in the same atomic batch -> `PERMISSION_DENIED`.

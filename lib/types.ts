@@ -50,6 +50,7 @@ export interface UserProfile {
   bestStreak: number;
   tier: DriverTier;
   disabled: boolean;
+  lastActiveAt?: unknown;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -61,6 +62,8 @@ export interface UserPrivateInfo {
   province?: string;
   voiceEnabled: boolean;
   notificationsEnabled: boolean;
+  broadcastsReadAtMs?: number;
+  notificationsClearedBeforeMs?: number;
   totpEnabled?: boolean;
   totpSealedSecret?: string;
   updatedAt: unknown;
@@ -284,6 +287,11 @@ export interface StaffPermission {
   addedByUid: string;
   addedByEmail: string;
   createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export interface PlatformUsersStats {
+  deletedCount: number;
   updatedAt: unknown;
 }
 

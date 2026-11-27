@@ -35,6 +35,7 @@ import {
   FacebookStyleAdCard,
   FullscreenVideoAdModal,
 } from '@/components/FacebookAdUnit';
+import { PlatformUsersTracker } from '@/components/PlatformUsersTracker';
 import { BroadcastItem, CompetitionRoom, UserResult } from '@/lib/types';
 import { findRoomByCode } from '@/lib/firestore-service';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
@@ -264,6 +265,9 @@ export default function DashboardPage() {
             </p>
           </div>
         </section>
+
+        {/* Real-Time 5M Users Community Growth Progress Bar & Charts */}
+        <PlatformUsersTracker />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Featured Live Room + Real-Time Chart + Join by Code */}

@@ -28,6 +28,7 @@
         "bestStreak": { "type": "integer" },
         "tier": { "type": "string", "enum": ["Aprendiz", "Condutor", "Especialista", "Mestre da Estrada"] },
         "disabled": { "type": "boolean" },
+        "lastActiveAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -44,6 +45,8 @@
         "province": { "type": "string", "maxLength": 60 },
         "voiceEnabled": { "type": "boolean" },
         "notificationsEnabled": { "type": "boolean" },
+        "broadcastsReadAtMs": { "type": "integer" },
+        "notificationsClearedBeforeMs": { "type": "integer" },
         "totpEnabled": { "type": "boolean" },
         "totpSealedSecret": { "type": "string", "maxLength": 1000 },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -324,6 +327,16 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "canViewReserved", "canAdmin", "canAnnounce", "active", "addedByUid", "addedByEmail", "createdAt", "updatedAt"]
+    },
+    "PlatformUsersStats": {
+      "title": "PlatformUsersStats",
+      "description": "Aggregate platform user counter tracking deleted accounts atomically.",
+      "type": "object",
+      "properties": {
+        "deletedCount": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deletedCount", "updatedAt"]
     }
   },
   "firestore": {
@@ -406,6 +419,10 @@
     "/staff_permissions/{emailKey}": {
       "schema": { "$ref": "#/entities/StaffPermission" },
       "description": "Delegated permissions by email managed exclusively by kordelmauvesp@gmail.com"
+    },
+    "/platform_stats/{statId}": {
+      "schema": { "$ref": "#/entities/PlatformUsersStats" },
+      "description": "Aggregate platform statistics for the 5M user growth tracker"
     }
   }
 }

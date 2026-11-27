@@ -118,6 +118,7 @@ export async function ensureUserProfile(
       bestStreak: 0,
       tier: 'Aprendiz',
       disabled: false,
+      lastActiveAt: serverTimestamp(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -1363,4 +1364,165 @@ export async function deleteStaffPermission(email: string): Promise<void> {
     handleFirestoreError(err, OperationType.DELETE, `staff_permissions/${emailKey}`);
   }
 }
+
+export async function touchUserPresence(uid: string): Promise<void> {
+  if (!uid) return;
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      lastActiveAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch {
+    // Non-blocking presence heartbeat
+  }
+}
+
+export async function markUserNotificationsAndBroadcastsRead(
+  uid: string,
+  unreadNotificationIds: string[]
+): Promise<void> {
+  if (!uid) return;
+  const nowMs = Date.now();
+  await Promise.all([
+    ...unreadNotificationIds.map((id) =>
+      updateDoc(doc(db, 'notifications', id), { read: true }).catch(() => {})
+    ),
+    updateDoc(doc(db, 'users', uid, 'private', 'info'), {
+      broadcastsReadAtMs: nowMs,
+      updatedAt: serverTimestamp(),
+    }).catch(() => {}),
+  ]);
+}
+
+async function deleteOwnedDocsInCollection(
+  collectionName: string,
+  uid: string
+): Promise<void> {
+  const q = query(
+    collection(db, collectionName),
+    where('uid', '==', uid),
+    limit(450)
+  );
+  // Loop until all matching user docs are cleared
+  for (let pass = 0; pass < 10; pass += 1) {
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    if (snap.size < 450) break;
+  }
+}
+
+export async function clearAllUserNotifications(uid: string): Promise<void> {
+  if (!uid) return;
+  const nowMs = Date.now();
+  await deleteOwnedDocsInCollection('notifications', uid);
+  try {
+    await updateDoc(doc(db, 'users', uid, 'private', 'info'), {
+      notificationsClearedBeforeMs: nowMs,
+      broadcastsReadAtMs: nowMs,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}/private/info`);
+  }
+}
+
+export async function factoryResetUserAccount(uid: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== uid) {
+    throw new Error('Sessão inválida para repor a conta.');
+  }
+
+  // 1. Delete competitive history, achievements, notifications, and rankings owned by user
+  await Promise.all([
+    deleteOwnedDocsInCollection('results', uid),
+    deleteOwnedDocsInCollection('achievements', uid),
+    deleteOwnedDocsInCollection('notifications', uid),
+    deleteOwnedDocsInCollection('weekly_rankings', uid),
+    deleteDoc(doc(db, 'global_rankings', uid)).catch(() => {}),
+  ]);
+
+  // 2. Reset UserProfile stats strictly to factory zeros
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      totalPoints: 0,
+      wins: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      tier: 'Aprendiz',
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+  }
+
+  // 3. Reset private preferences to factory defaults
+  try {
+    await updateDoc(doc(db, 'users', uid, 'private', 'info'), {
+      drivingSchool: 'Escola de Condução Nacional',
+      province: 'Luanda',
+      voiceEnabled: true,
+      notificationsEnabled: true,
+      broadcastsReadAtMs: 0,
+      notificationsClearedBeforeMs: 0,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}/private/info`);
+  }
+}
+
+export async function deleteUserAccountData(uid: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== uid) {
+    throw new Error('Sessão inválida para eliminar a conta.');
+  }
+
+  // 1. Delete all owned sub-records & private info
+  await Promise.all([
+    deleteOwnedDocsInCollection('results', uid),
+    deleteOwnedDocsInCollection('achievements', uid),
+    deleteOwnedDocsInCollection('notifications', uid),
+    deleteOwnedDocsInCollection('weekly_rankings', uid),
+    deleteDoc(doc(db, 'global_rankings', uid)).catch(() => {}),
+    deleteDoc(doc(db, 'users', uid, 'private', 'info')).catch(() => {}),
+  ]);
+
+  // 2. Atomically delete users/{uid} and increment platform_stats/users_summary.deletedCount
+  const userRef = doc(db, 'users', uid);
+  const summaryRef = doc(db, 'platform_stats', 'users_summary');
+  try {
+    await runTransaction(db, async (tx) => {
+      const [userSnap, summarySnap] = await Promise.all([
+        tx.get(userRef),
+        tx.get(summaryRef),
+      ]);
+      if (!userSnap.exists()) return;
+      tx.delete(userRef);
+      if (summarySnap.exists()) {
+        const prev = Number(summarySnap.data()?.deletedCount || 0);
+        tx.update(summaryRef, {
+          deletedCount: prev + 1,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.set(summaryRef, {
+          deletedCount: 1,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
+  }
+
+  // 3. Clear 2FA session cookie if present
+  await fetch('/api/auth/totp/status', { method: 'DELETE' }).catch(() => {});
+}
+
 

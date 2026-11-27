@@ -60,9 +60,9 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07090F] text-slate-50 flex flex-col w-full max-w-full overflow-x-hidden">
-      {/* Top Bar Contract (3 zones) */}
-      <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#07090F]/85 backdrop-blur-md">
+    <div className="min-h-screen bg-[#07090F] text-slate-50 flex flex-col w-full max-w-full overflow-x-clip pt-16">
+      {/* Fixed Top Bar on Scroll (3 zones) */}
+      <header className="fixed top-0 left-0 right-0 z-30 border-b border-white/[0.08] bg-[#07090F]/90 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
           <Link
             href="/"

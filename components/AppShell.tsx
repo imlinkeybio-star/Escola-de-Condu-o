@@ -9,6 +9,7 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  CheckCheck,
   ExternalLink,
   History,
   Home,
@@ -20,23 +21,26 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Trash2,
   Trophy,
   User,
   X,
 } from 'lucide-react';
 import {
   collection,
-  doc,
   limit,
   onSnapshot,
   query,
-  updateDoc,
   where,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
 import { BroadcastItem, NotificationItem } from '@/lib/types';
 import { AdBroadcastBanner } from './AdBroadcastBanner';
+import {
+  clearAllUserNotifications,
+  markUserNotificationsAndBroadcastsRead,
+} from '@/lib/firestore-service';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
@@ -81,6 +85,9 @@ export function AppShell({
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
+  const [optimisticReadAtMs, setOptimisticReadAtMs] = useState(0);
+  const [optimisticClearedAtMs, setOptimisticClearedAtMs] = useState(0);
+  const [clearingNotifs, setClearingNotifs] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [otpSubmitting, setOtpSubmitting] = useState(false);
   const [otpError, setOtpError] = useState('');
@@ -136,16 +143,58 @@ export function AppShell({
     return () => unsub();
   }, [user]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-  const totalAlertBadge = unreadCount + broadcasts.length;
+  const clearedBeforeMs = Math.max(
+    privateInfo?.notificationsClearedBeforeMs ?? 0,
+    optimisticClearedAtMs
+  );
+  const broadcastsReadAtMs = Math.max(
+    privateInfo?.broadcastsReadAtMs ?? 0,
+    optimisticReadAtMs,
+    clearedBeforeMs
+  );
+
+  const visibleNotifications = notifications.filter((n) => {
+    const ms = getTimestampMillis(n.createdAt);
+    return ms === 0 || ms > clearedBeforeMs;
+  });
+  const visibleBroadcasts = broadcasts.filter((b) => {
+    const ms = getTimestampMillis(b.createdAt);
+    return ms === 0 || ms > clearedBeforeMs;
+  });
+
+  const unreadPersonalCount = visibleNotifications.filter((n) => !n.read).length;
+  const unreadBroadcastCount = visibleBroadcasts.filter((b) => {
+    const latestMs = Math.max(
+      getTimestampMillis(b.createdAt),
+      getTimestampMillis(b.updatedAt)
+    );
+    return latestMs === 0 ? broadcastsReadAtMs === 0 : latestMs > broadcastsReadAtMs;
+  }).length;
+  const totalAlertBadge = unreadPersonalCount + unreadBroadcastCount;
 
   const markAllRead = async () => {
-    const unread = notifications.filter((n) => !n.read && n.id);
-    await Promise.all(
-      unread.map((n) =>
-        updateDoc(doc(db, 'notifications', n.id!), { read: true }).catch(() => {})
-      )
-    );
+    if (!user) return;
+    const nowMs = Date.now();
+    setOptimisticReadAtMs(nowMs);
+    const unreadIds = visibleNotifications
+      .filter((n) => !n.read && n.id)
+      .map((n) => n.id!);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    await markUserNotificationsAndBroadcastsRead(user.uid, unreadIds);
+  };
+
+  const handleClearAllNotifications = async () => {
+    if (!user || clearingNotifs) return;
+    setClearingNotifs(true);
+    const nowMs = Date.now();
+    setOptimisticClearedAtMs(nowMs);
+    setOptimisticReadAtMs(nowMs);
+    setNotifications([]);
+    try {
+      await clearAllUserNotifications(user.uid);
+    } finally {
+      setClearingNotifs(false);
+    }
   };
 
   const navItems = [
@@ -234,7 +283,7 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#07090F] text-slate-100 flex">
+    <div className="min-h-screen w-full max-w-full overflow-x-clip bg-[#07090F] text-slate-100 flex">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#0D101A] border-r border-white/[0.08] z-30">
         <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.08]">
@@ -320,9 +369,9 @@ export function AppShell({
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0 max-w-full">
-        {/* Top Bar (Compact 56px mobile, 64px desktop) */}
-        <header className="sticky top-0 z-20 h-14 lg:h-16 bg-[#07090F]/90 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0 max-w-full pt-14 lg:pt-16">
+        {/* Fixed Top Bar on Scroll (56px mobile, 64px desktop) */}
+        <header className="fixed top-0 left-0 right-0 lg:left-64 z-30 h-14 lg:h-16 bg-[#07090F]/95 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               onClick={() => setDrawerOpen(true)}
@@ -342,8 +391,11 @@ export function AppShell({
                 <div className="relative">
                   <button
                     onClick={() => {
-                      setNotifOpen((p) => !p);
-                      if (!notifOpen && unreadCount > 0) void markAllRead();
+                      const nextOpen = !notifOpen;
+                      setNotifOpen(nextOpen);
+                      if (nextOpen && totalAlertBadge > 0) {
+                        void markAllRead();
+                      }
                     }}
                     aria-label="Notificações"
                     className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.06] relative cursor-pointer"
@@ -356,118 +408,143 @@ export function AppShell({
                     )}
                   </button>
                   {notifOpen && (
-                    <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-1.5rem))] bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
-                      <div className="flex items-center justify-between px-1 pb-1.5 border-b border-white/[0.08]">
-                        <span className="text-xs font-semibold text-white">
-                          Notificações & Avisos
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href="/notificacoes"
-                            onClick={() => setNotifOpen(false)}
-                            className="text-[11px] font-semibold text-red-400 hover:text-red-300 whitespace-nowrap"
-                          >
-                            Ver todas
-                          </Link>
-                          <button
-                            onClick={() => setNotifOpen(false)}
-                            className="text-slate-400 hover:text-white p-1 cursor-pointer"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setNotifOpen(false)}
+                      />
+                      <div className="fixed left-3 right-3 top-[60px] sm:left-auto sm:right-6 sm:top-[68px] sm:w-[24rem] max-h-[min(32rem,calc(100dvh-5rem))] flex flex-col overflow-hidden bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
+                        <div className="flex items-center justify-between gap-2 px-1 pb-2 border-b border-white/[0.08] shrink-0">
+                          <span className="text-xs font-semibold text-white truncate">
+                            Notificações & Avisos
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {(visibleBroadcasts.length > 0 ||
+                              visibleNotifications.length > 0) && (
+                              <button
+                                type="button"
+                                onClick={() => void handleClearAllNotifications()}
+                                disabled={clearingNotifs}
+                                title="Limpar todas as notificações"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-red-600/25 text-[11px] font-semibold text-slate-300 hover:text-red-200 cursor-pointer whitespace-nowrap"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Limpar
+                              </button>
+                            )}
+                            <Link
+                              href="/notificacoes"
+                              onClick={() => setNotifOpen(false)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-400 hover:text-red-300 whitespace-nowrap"
+                            >
+                              Ver todas
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => setNotifOpen(false)}
+                              aria-label="Fechar notificações"
+                              className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
+
+                        {visibleBroadcasts.length === 0 &&
+                        visibleNotifications.length === 0 ? (
+                          <div className="py-6 text-center space-y-1.5">
+                            <CheckCheck className="w-6 h-6 text-emerald-400 mx-auto" />
+                            <p className="text-xs text-slate-400">
+                              Sem notificações pendentes.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
+                            {visibleBroadcasts.slice(0, 5).map((b) => {
+                              const safeLink = sanitizeSafeUrl(b.linkUrl);
+                              return (
+                                <div
+                                  key={b.id}
+                                  className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1 min-w-0"
+                                >
+                                  <p className="text-xs font-bold text-white break-words">
+                                    {b.title}
+                                  </p>
+                                  <p className="text-xs text-slate-300 break-words">
+                                    {b.body}
+                                  </p>
+                                  {safeLink &&
+                                    (isInternalPath(safeLink) ? (
+                                      <Link
+                                        href={safeLink}
+                                        onClick={() => setNotifOpen(false)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
+                                      >
+                                        {b.linkLabel || 'Abrir'}
+                                        <ExternalLink className="w-3 h-3" />
+                                      </Link>
+                                    ) : (
+                                      <a
+                                        href={safeLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
+                                      >
+                                        {b.linkLabel || 'Abrir Link'}
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    ))}
+                                </div>
+                              );
+                            })}
+
+                            {visibleNotifications.map((n) => {
+                              const safeLink = sanitizeSafeUrl(n.linkUrl);
+                              return (
+                                <div
+                                  key={n.id}
+                                  onClick={() => {
+                                    if (n.roomId) {
+                                      setNotifOpen(false);
+                                      router.push(`/sala/${n.roomId}`);
+                                    }
+                                  }}
+                                  className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] cursor-pointer space-y-1 min-w-0"
+                                >
+                                  <p className="text-xs font-semibold text-white break-words">
+                                    {n.title}
+                                  </p>
+                                  <p className="text-xs text-slate-400 break-words">
+                                    {n.body}
+                                  </p>
+                                  {safeLink &&
+                                    (isInternalPath(safeLink) ? (
+                                      <Link
+                                        href={safeLink}
+                                        onClick={() => setNotifOpen(false)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
+                                      >
+                                        {n.linkLabel || 'Abrir'}
+                                        <ExternalLink className="w-3 h-3" />
+                                      </Link>
+                                    ) : (
+                                      <a
+                                        href={safeLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
+                                      >
+                                        {n.linkLabel || 'Abrir Link'}
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-
-                      {broadcasts.length === 0 && notifications.length === 0 ? (
-                        <p className="text-xs text-slate-400 py-4 text-center">
-                          Sem notificações recentes.
-                        </p>
-                      ) : (
-                        <div className="max-h-72 overflow-y-auto space-y-1.5">
-                          {broadcasts.slice(0, 5).map((b) => {
-                            const safeLink = sanitizeSafeUrl(b.linkUrl);
-                            return (
-                              <div
-                                key={b.id}
-                                className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-1"
-                              >
-                                <p className="text-xs font-bold text-white break-words">
-                                  {b.title}
-                                </p>
-                                <p className="text-xs text-slate-300 break-words">
-                                  {b.body}
-                                </p>
-                                {safeLink &&
-                                  (isInternalPath(safeLink) ? (
-                                    <Link
-                                      href={safeLink}
-                                      onClick={() => setNotifOpen(false)}
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
-                                    >
-                                      {b.linkLabel || 'Abrir'}
-                                      <ExternalLink className="w-3 h-3" />
-                                    </Link>
-                                  ) : (
-                                    <a
-                                      href={safeLink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
-                                    >
-                                      {b.linkLabel || 'Abrir Link'}
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                  ))}
-                              </div>
-                            );
-                          })}
-
-                          {notifications.map((n) => {
-                            const safeLink = sanitizeSafeUrl(n.linkUrl);
-                            return (
-                              <div
-                                key={n.id}
-                                onClick={() => {
-                                  if (n.roomId) {
-                                    setNotifOpen(false);
-                                    router.push(`/sala/${n.roomId}`);
-                                  }
-                                }}
-                                className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] cursor-pointer space-y-1"
-                              >
-                                <p className="text-xs font-semibold text-white break-words">
-                                  {n.title}
-                                </p>
-                                <p className="text-xs text-slate-400 break-words">
-                                  {n.body}
-                                </p>
-                                {safeLink &&
-                                  (isInternalPath(safeLink) ? (
-                                    <Link
-                                      href={safeLink}
-                                      onClick={() => setNotifOpen(false)}
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
-                                    >
-                                      {n.linkLabel || 'Abrir'}
-                                      <ExternalLink className="w-3 h-3" />
-                                    </Link>
-                                  ) : (
-                                    <a
-                                      href={safeLink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
-                                    >
-                                      {n.linkLabel || 'Abrir Link'}
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                  ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                    </>
                   )}
                 </div>
 

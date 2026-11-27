@@ -20,6 +20,7 @@ import {
   fetchMyStaffPermission,
   isValidEmailAddress,
   normalizeEmailKey,
+  touchUserPresence,
 } from '@/lib/firestore-service';
 import { StaffPermission, UserPrivateInfo, UserProfile } from '@/lib/types';
 import { isAppOwnerEmail } from '@/lib/url-safety';
@@ -153,6 +154,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubPrivate();
       unsubStaff();
     };
+  }, [user]);
+
+  // Keep user lastActiveAt fresh for real-time 3-day offline analytics
+  useEffect(() => {
+    if (!user) return;
+    const uid = user.uid;
+    void touchUserPresence(uid);
+    const interval = setInterval(() => {
+      void touchUserPresence(uid);
+    }, 10 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [user]);
 
   const totpEnabled = Boolean(
