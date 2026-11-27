@@ -1,9 +1,3 @@
 {
-  "/api/ai/generate-questions/route": "app/api/ai/generate-questions/route.js",
-  "/api/competition/start-round/route": "app/api/competition/start-round/route.js",
-  "/api/competition/reveal-answer/route": "app/api/competition/reveal-answer/route.js",
-  "/page": "app/page.js",
-  "/salas/page": "app/salas/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/ranking/page": "app/ranking/page.js"
+  "/utilizadores/page": "app/utilizadores/page.js"
 }

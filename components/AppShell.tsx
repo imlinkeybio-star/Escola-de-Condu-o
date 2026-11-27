@@ -24,6 +24,7 @@ import {
   Trash2,
   Trophy,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -201,6 +202,7 @@ export function AppShell({
     { href: '/dashboard', label: 'Início', icon: Home },
     { href: '/salas', label: 'Salas ao Vivo', icon: Radio },
     { href: '/ranking', label: 'Ranking', icon: Trophy },
+    { href: '/utilizadores', label: 'Utilizadores & Prêmios', icon: Users },
     { href: '/estatisticas', label: 'Estatísticas', icon: BarChart3 },
     { href: '/historico', label: 'Histórico', icon: History },
     { href: '/notificacoes', label: 'Notificações', icon: Bell },

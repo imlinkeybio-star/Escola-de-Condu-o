@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Award, CheckCircle2, Lock } from 'lucide-react';
+import Link from 'next/link';
+import { Award, CheckCircle2, Lock, Users } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
@@ -41,11 +42,20 @@ export default function ConquistasPage() {
               questões do Código de Estrada.
             </p>
           </div>
-          <div className="text-right shrink-0">
-            <p className="font-mono-tabular text-2xl font-extrabold text-amber-400">
-              {unlocked.length}/{ACHIEVEMENTS_CATALOG.length}
-            </p>
-            <p className="text-xs text-slate-400">Desbloqueadas</p>
+          <div className="flex items-center gap-4 shrink-0">
+            <Link
+              href="/utilizadores"
+              className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+            >
+              <Users className="w-4 h-4 text-amber-400" />
+              Prêmios dos Utilizadores
+            </Link>
+            <div className="text-right">
+              <p className="font-mono-tabular text-2xl font-extrabold text-amber-400">
+                {unlocked.length}/{ACHIEVEMENTS_CATALOG.length}
+              </p>
+              <p className="text-xs text-slate-400">Desbloqueadas</p>
+            </div>
           </div>
         </div>
 

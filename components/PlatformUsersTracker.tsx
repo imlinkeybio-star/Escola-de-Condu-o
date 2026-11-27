@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Users } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowUpRight, Users } from 'lucide-react';
 import {
   collection,
   doc,
@@ -186,13 +187,22 @@ export function PlatformUsersTracker() {
           </div>
         </div>
 
-        <div className="text-left sm:text-right font-mono-tabular shrink-0">
-          <p className="text-sm font-extrabold text-emerald-400">
-            {formatNumber(stats.registeredCount)} / 5.000.000
-          </p>
-          <p className="text-[11px] text-slate-400">
-            {stats.goalPct.toFixed(4)}% da meta alcançada
-          </p>
+        <div className="flex flex-col sm:items-end gap-1.5 font-mono-tabular shrink-0">
+          <div className="text-left sm:text-right">
+            <p className="text-sm font-extrabold text-emerald-400">
+              {formatNumber(stats.registeredCount)} / 5.000.000
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {stats.goalPct.toFixed(4)}% da meta alcançada
+            </p>
+          </div>
+          <Link
+            href="/utilizadores"
+            className="inline-flex items-center gap-1 text-xs font-sans font-semibold text-slate-300 hover:text-white transition-colors whitespace-nowrap"
+          >
+            Ver utilizadores & prêmios
+            <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+          </Link>
         </div>
       </div>
 

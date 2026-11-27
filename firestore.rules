@@ -919,7 +919,7 @@ service cloud.firestore {
 
     match /achievements/{entryId} {
       allow get: if isSignedIn() && isValidLongId(entryId);
-      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.tier in ['bronze', 'silver', 'gold']);
       allow create: if isSignedIn() && isValidLongId(entryId)
         && isValidAchievement(incoming())
         && entryId == (request.auth.uid + '_' + incoming().achievementId)
