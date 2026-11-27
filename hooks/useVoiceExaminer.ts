@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { auth } from '@/lib/firebase';
+import { useLanguage } from '@/components/LanguageProvider';
 
 export function useVoiceExaminer(initialEnabled = true) {
+  const { language, meta } = useLanguage();
   const [voiceEnabled, setVoiceEnabled] = useState(initialEnabled);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -55,7 +57,7 @@ export function useVoiceExaminer(initialEnabled = true) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${idToken}`,
           },
-          body: JSON.stringify({ text: clean }),
+          body: JSON.stringify({ text: clean, language }),
           signal: controller.signal,
         });
 
@@ -98,8 +100,8 @@ export function useVoiceExaminer(initialEnabled = true) {
         ) {
           try {
             const utter = new SpeechSynthesisUtterance(clean);
-            utter.lang = 'pt-PT';
-            utter.rate = 1.02;
+            utter.lang = meta.ttsLanguageCode;
+            utter.rate = 1.0;
             utter.onstart = () => setIsSpeaking(true);
             utter.onend = () => setIsSpeaking(false);
             utter.onerror = () => setIsSpeaking(false);
@@ -110,7 +112,7 @@ export function useVoiceExaminer(initialEnabled = true) {
         }
       }
     },
-    [stopSpeech, voiceEnabled]
+    [language, meta.ttsLanguageCode, stopSpeech, voiceEnabled]
   );
 
   const toggleVoice = useCallback(() => {

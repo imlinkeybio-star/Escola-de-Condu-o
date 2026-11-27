@@ -6,11 +6,14 @@ import { Award, CheckCircle2, Lock, Users } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import { AchievementRecord, ACHIEVEMENTS_CATALOG } from '@/lib/types';
+import { translateAchievement } from '@/lib/i18n';
 
 export default function ConquistasPage() {
   const { user } = useAuth();
+  const { language, dict } = useLanguage();
   const [unlocked, setUnlocked] = useState<AchievementRecord[]>([]);
 
   useEffect(() => {
@@ -30,16 +33,15 @@ export default function ConquistasPage() {
   const unlockedSet = new Set(unlocked.map((a) => a.achievementId));
 
   return (
-    <AppShell title="Conquistas e Troféus">
+    <AppShell title={dict.achievements.shellTitle}>
       <div className="space-y-6">
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4 min-w-0">
           <div className="min-w-0">
             <h2 className="font-display text-2xl font-extrabold text-white">
-              Galeria de Conquistas
+              {dict.achievements.heading}
             </h2>
             <p className="text-sm text-slate-400">
-              Desbloqueia troféus ao vencer salas, manter sequências e acertar
-              questões do Código de Estrada.
+              {dict.achievements.subtitle}
             </p>
           </div>
           <div className="flex items-center gap-4 shrink-0">
@@ -48,13 +50,13 @@ export default function ConquistasPage() {
               className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap"
             >
               <Users className="w-4 h-4 text-amber-400" />
-              Prêmios dos Utilizadores
+              {dict.achievements.communityPrizesBtn}
             </Link>
-            <div className="text-right">
+            <div className="text-end">
               <p className="font-mono-tabular text-2xl font-extrabold text-amber-400">
                 {unlocked.length}/{ACHIEVEMENTS_CATALOG.length}
               </p>
-              <p className="text-xs text-slate-400">Desbloqueadas</p>
+              <p className="text-xs text-slate-400">{dict.achievements.unlockedLabel}</p>
             </div>
           </div>
         </div>
@@ -62,6 +64,12 @@ export default function ConquistasPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {ACHIEVEMENTS_CATALOG.map((ach) => {
             const isUnlocked = unlockedSet.has(ach.id);
+            const translated = translateAchievement(
+              language,
+              ach.id,
+              ach.title,
+              ach.description
+            );
             const tierBorder =
               ach.tier === 'gold'
                 ? 'border-amber-400/50'
@@ -92,22 +100,22 @@ export default function ConquistasPage() {
                   {isUnlocked ? (
                     <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400">
                       <CheckCircle2 className="w-4 h-4" />
-                      Conquistada
+                      {dict.achievements.unlockedBadge}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                       <Lock className="w-3.5 h-3.5" />
-                      Bloqueada
+                      {dict.achievements.lockedBadge}
                     </span>
                   )}
                 </div>
 
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {ach.title}
+                    {translated.title}
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    {ach.description}
+                    {translated.description}
                   </p>
                 </div>
               </div>

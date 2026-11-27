@@ -4,14 +4,16 @@ import React, { Suspense, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, KeyRound, LogIn, Mail } from 'lucide-react';
+import { ArrowLeft, Globe, KeyRound, LogIn, Mail } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') || '/dashboard';
   const { signInWithGoogle, signInWithEmail, resetPassword } = useAuth();
+  const { dict } = useLanguage();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,19 +35,15 @@ function LoginFormContent() {
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
       if (code === 'auth/operation-not-allowed') {
-        setError(
-          'O login por email/palavra-passe ainda não está ativado na Consola Firebase (Authentication > Sign-in method > Email/Password). Usa o botão "Entrar com Google" abaixo.'
-        );
+        setError(dict.auth.emailNotEnabledLogin);
       } else if (
         code === 'auth/invalid-credential' ||
         code === 'auth/wrong-password' ||
         code === 'auth/user-not-found'
       ) {
-        setError('Email ou palavra-passe incorretos.');
+        setError(dict.auth.invalidCredentials);
       } else {
-        setError(
-          err instanceof Error ? err.message : 'Erro ao iniciar sessão.'
-        );
+        setError(err instanceof Error ? err.message : dict.auth.loginError);
       }
     } finally {
       setLoading(false);
@@ -57,21 +55,15 @@ function LoginFormContent() {
     setError('');
     setInfo('');
     if (!email.trim()) {
-      setError('Indica o teu email para recuperar a palavra-passe.');
+      setError(dict.auth.resetEmailRequired);
       return;
     }
     setLoading(true);
     try {
       await resetPassword(email);
-      setInfo(
-        'Enviámos um link de recuperação para o teu email. Verifica a caixa de entrada.'
-      );
+      setInfo(dict.auth.resetEmailSent);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível enviar o email de recuperação.'
-      );
+      setError(err instanceof Error ? err.message : dict.auth.resetEmailError);
     } finally {
       setLoading(false);
     }
@@ -84,9 +76,7 @@ function LoginFormContent() {
       await signInWithGoogle();
       router.push(nextPath);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Erro ao entrar com Google.'
-      );
+      setError(err instanceof Error ? err.message : dict.auth.googleError);
     } finally {
       setLoading(false);
     }
@@ -95,18 +85,27 @@ function LoginFormContent() {
   return (
     <div className="min-h-screen bg-[#07090F] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-[#111520] border border-white/10 rounded-2xl p-6 sm:p-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </Link>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white"
+            >
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+              {dict.common.back}
+            </Link>
+            <Link
+              href="/idiomas"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/10"
+            >
+              <Globe className="w-3.5 h-3.5 text-sky-400" />
+              {dict.nav.idiomas}
+            </Link>
+          </div>
           <div className="bg-white/95 rounded-xl px-2.5 py-1 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
             <Image
               src="/assets/aistudio/favicon_14076ff5.png"
-              alt="Escola de Condução Live"
+              alt={dict.common.brandName}
               width={72}
               height={48}
               className="h-10 w-auto object-contain"
@@ -117,12 +116,10 @@ function LoginFormContent() {
 
         <div className="space-y-1">
           <h1 className="font-display text-3xl font-extrabold text-white">
-            {resetMode ? 'Recuperar Palavra-Passe' : 'Entrar na Plataforma'}
+            {resetMode ? dict.auth.resetTitle : dict.auth.loginTitle}
           </h1>
           <p className="text-sm text-slate-400">
-            {resetMode
-              ? 'Insere o teu email para receberes instruções de recuperação.'
-              : 'Acede às salas ao vivo e acompanha a tua pontuação.'}
+            {resetMode ? dict.auth.resetSubtitle : dict.auth.loginSubtitle}
           </p>
         </div>
 
@@ -143,12 +140,12 @@ function LoginFormContent() {
           className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
         >
           <LogIn className="w-4 h-4" />
-          Entrar com Google
+          {dict.landing.signInGoogle}
         </button>
 
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <div className="h-px flex-1 bg-white/10" />
-          <span>ou com email</span>
+          <span>{dict.auth.orWithEmail}</span>
           <div className="h-px flex-1 bg-white/10" />
         </div>
 
@@ -156,14 +153,14 @@ function LoginFormContent() {
           <form onSubmit={handleReset} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300">
-                Email
+                {dict.auth.emailLabel}
               </label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="aluno@exemplo.ao"
+                placeholder={dict.auth.emailPlaceholder}
                 className="w-full min-h-[46px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
               />
             </div>
@@ -173,42 +170,42 @@ function LoginFormContent() {
               className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 cursor-pointer"
             >
               <Mail className="w-4 h-4" />
-              Enviar Email de Recuperação
+              {dict.auth.sendRecoveryEmail}
             </button>
             <button
               type="button"
               onClick={() => setResetMode(false)}
               className="w-full text-xs text-slate-400 hover:text-white py-1 cursor-pointer"
             >
-              Voltar ao Login
+              {dict.auth.backToLogin}
             </button>
           </form>
         ) : (
           <form onSubmit={handleEmailLogin} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300">
-                Email
+                {dict.auth.emailLabel}
               </label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="aluno@exemplo.ao"
+                placeholder={dict.auth.emailPlaceholder}
                 className="w-full min-h-[46px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
               />
             </div>
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-medium text-slate-300">
-                  Palavra-passe
+                  {dict.auth.passwordLabel}
                 </label>
                 <button
                   type="button"
                   onClick={() => setResetMode(true)}
                   className="text-xs text-red-400 hover:text-red-300 cursor-pointer"
                 >
-                  Esqueceste a palavra-passe?
+                  {dict.auth.forgotPassword}
                 </button>
               </div>
               <input
@@ -226,18 +223,18 @@ function LoginFormContent() {
               className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 cursor-pointer"
             >
               <KeyRound className="w-4 h-4" />
-              {loading ? 'A entrar...' : 'Entrar'}
+              {loading ? dict.auth.loggingIn : dict.common.enter}
             </button>
           </form>
         )}
 
         <p className="text-center text-xs text-slate-400">
-          Ainda não tens conta?{' '}
+          {dict.auth.noAccountYet}{' '}
           <Link
             href="/registar"
             className="text-red-400 hover:text-red-300 font-semibold"
           >
-            Registar-se gratuitamente
+            {dict.auth.registerFreeLink}
           </Link>
         </p>
       </div>

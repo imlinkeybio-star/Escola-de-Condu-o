@@ -21,6 +21,7 @@ import {
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import {
   AchievementRecord,
@@ -28,6 +29,13 @@ import {
   DriverTier,
   UserProfile,
 } from '@/lib/types';
+import {
+  formatDateLocale,
+  formatNumberLocale,
+  tFormat,
+  translateAchievement,
+  translateTier,
+} from '@/lib/i18n';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 type TierFilter = 'Todos' | DriverTier;
@@ -84,24 +92,20 @@ function getPrizeColor(tier: AchievementRecord['tier']): string {
   }
 }
 
-function formatUnlockedDate(ts: unknown): string {
-  if (!ts) return 'Conquistado';
-  let ms = 0;
+function extractMillis(ts: unknown): number {
+  if (!ts) return 0;
   if (typeof (ts as { toMillis?: () => number }).toMillis === 'function') {
-    ms = (ts as { toMillis: () => number }).toMillis();
-  } else if (typeof (ts as { seconds?: number }).seconds === 'number') {
-    ms = (ts as { seconds: number }).seconds * 1000;
+    return (ts as { toMillis: () => number }).toMillis();
   }
-  if (!ms) return 'Conquistado';
-  return new Date(ms).toLocaleDateString('pt-AO', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  if (typeof (ts as { seconds?: number }).seconds === 'number') {
+    return (ts as { seconds: number }).seconds * 1000;
+  }
+  return 0;
 }
 
 export default function UtilizadoresPage() {
   const { user, loading, authReady } = useAuth();
+  const { language, dict } = useLanguage();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [achievements, setAchievements] = useState<AchievementRecord[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -111,6 +115,16 @@ export default function UtilizadoresPage() {
   const [tierFilter, setTierFilter] = useState<TierFilter>('Todos');
   const [sortBy, setSortBy] = useState<SortOption>('points');
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
+
+  const formatUnlockedDate = (ts: unknown): string => {
+    const ms = extractMillis(ts);
+    if (!ms) return dict.users.unlockedStatus;
+    return formatDateLocale(language, ms, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
 
   useEffect(() => {
     if (!authReady || !user) return;
@@ -127,7 +141,7 @@ export default function UtilizadoresPage() {
       },
       (err) => {
         setLoadingUsers(false);
-        setLoadError('Não foi possível carregar a lista geral de utilizadores.');
+        setLoadError(dict.users.loadingError);
         handleFirestoreError(err, OperationType.LIST, 'users');
       }
     );
@@ -152,7 +166,7 @@ export default function UtilizadoresPage() {
       unsubUsers();
       unsubAchievements();
     };
-  }, [authReady, user]);
+  }, [authReady, user, dict.users.loadingError]);
 
   const achievementsByUid = useMemo(() => {
     const map = new Map<string, AchievementRecord[]>();
@@ -218,12 +232,12 @@ export default function UtilizadoresPage() {
         if (sortBy === 'name') {
           return (a.displayName || '').localeCompare(
             b.displayName || '',
-            'pt'
+            language
           );
         }
         return (b.totalPoints || 0) - (a.totalPoints || 0);
       });
-  }, [enrichedUsers, searchQuery, tierFilter, sortBy]);
+  }, [enrichedUsers, searchQuery, tierFilter, sortBy, language]);
 
   const summary = useMemo(() => {
     const totalUsers = enrichedUsers.length;
@@ -244,26 +258,26 @@ export default function UtilizadoresPage() {
 
   if (!loading && !user) {
     return (
-      <AppShell title="Utilizadores & Prêmios">
+      <AppShell title={dict.users.shellTitle}>
         <div className="bg-[#111520] border border-white/10 rounded-2xl p-6 sm:p-8 text-center space-y-4">
           <h2 className="text-2xl font-bold text-white">
-            Inicia sessão para veres todos os utilizadores e prêmios
+            {dict.users.guestTitle}
           </h2>
           <p className="text-sm text-slate-400">
-            Entra ou cria uma conta para consultar o perfil, nível e troféus da comunidade.
+            {dict.users.guestDesc}
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link
               href="/entrar"
               className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
             >
-              Entrar
+              {dict.common.enter}
             </Link>
             <Link
               href="/registar"
               className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
             >
-              Registar-se
+              {dict.common.register}
             </Link>
           </div>
         </div>
@@ -272,7 +286,7 @@ export default function UtilizadoresPage() {
   }
 
   return (
-    <AppShell title="Utilizadores & Prêmios">
+    <AppShell title={dict.users.shellTitle}>
       <div className="space-y-6">
         {/* Header Banner */}
         <section className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 min-w-0">
@@ -282,11 +296,10 @@ export default function UtilizadoresPage() {
             </div>
             <div className="min-w-0">
               <h2 className="font-display text-xl sm:text-2xl font-extrabold text-white text-balance">
-                Todos os Utilizadores da Escola de Condução Live
+                {dict.users.heading}
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                Perfis públicos, fotografia, nível de condução e prêmios
-                conquistados por toda a comunidade em tempo real.
+                {dict.users.subtitle}
               </p>
             </div>
           </div>
@@ -295,45 +308,45 @@ export default function UtilizadoresPage() {
             className="inline-flex items-center justify-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0"
           >
             <Award className="w-4 h-4 text-amber-400" />
-            Catálogo de Prêmios
+            {dict.users.prizeCatalogBtn}
           </Link>
         </section>
 
         {/* 4 Summary Metrics */}
         <section
-          aria-label="Resumo geral de utilizadores e prêmios"
+          aria-label={dict.users.summaryAria}
           className="grid grid-cols-2 lg:grid-cols-4 gap-3"
         >
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-4 min-w-0">
             <p className="text-xs text-slate-400 truncate">
-              Utilizadores Ativos
+              {dict.users.activeUsers}
             </p>
             <p className="font-mono-tabular text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {summary.totalUsers.toLocaleString('pt-AO')}
+              {formatNumberLocale(language, summary.totalUsers)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-4 min-w-0">
             <p className="text-xs text-slate-400 truncate">
-              Prêmios Conquistados
+              {dict.users.prizesEarned}
             </p>
             <p className="font-mono-tabular text-2xl font-extrabold text-amber-400 mt-1 tabular-nums">
-              {summary.totalPrizes.toLocaleString('pt-AO')}
+              {formatNumberLocale(language, summary.totalPrizes)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-4 min-w-0">
             <p className="text-xs text-slate-400 truncate">
-              Vitórias em Salas
+              {dict.users.roomWins}
             </p>
             <p className="font-mono-tabular text-2xl font-extrabold text-emerald-400 mt-1 tabular-nums">
-              {summary.totalWins.toLocaleString('pt-AO')}
+              {formatNumberLocale(language, summary.totalWins)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-4 min-w-0">
             <p className="text-xs text-slate-400 truncate">
-              Mestres & Especialistas
+              {dict.users.mastersSpecialists}
             </p>
             <p className="font-mono-tabular text-2xl font-extrabold text-sky-400 mt-1 tabular-nums">
-              {summary.eliteCount.toLocaleString('pt-AO')}
+              {formatNumberLocale(language, summary.eliteCount)}
             </p>
           </div>
         </section>
@@ -342,14 +355,14 @@ export default function UtilizadoresPage() {
         <section className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 space-y-3 min-w-0">
           <div className="flex flex-col md:flex-row gap-3 min-w-0">
             <div className="relative flex-1 min-w-0">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Pesquisar utilizador por username..."
-                aria-label="Pesquisar utilizador por username"
-                className="w-full min-h-[42px] pl-10 pr-4 rounded-xl bg-[#090C14] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-red-500"
+                placeholder={dict.users.searchPlaceholder}
+                aria-label={dict.users.searchPlaceholder}
+                className="w-full min-h-[42px] ps-10 pe-4 rounded-xl bg-[#090C14] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-red-500"
               />
             </div>
 
@@ -358,13 +371,13 @@ export default function UtilizadoresPage() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                aria-label="Ordenar utilizadores"
+                aria-label={dict.users.sortAria}
                 className="min-h-[42px] px-3.5 rounded-xl bg-[#090C14] border border-white/10 text-sm text-white focus:outline-none focus:border-red-500"
               >
-                <option value="points">Ordenar: Maior Pontuação</option>
-                <option value="prizes">Ordenar: Mais Prêmios</option>
-                <option value="wins">Ordenar: Mais Vitórias</option>
-                <option value="name">Ordenar: Nome (A–Z)</option>
+                <option value="points">{dict.users.sortPoints}</option>
+                <option value="prizes">{dict.users.sortPrizes}</option>
+                <option value="wins">{dict.users.sortWins}</option>
+                <option value="name">{dict.users.sortName}</option>
               </select>
             </div>
           </div>
@@ -372,6 +385,10 @@ export default function UtilizadoresPage() {
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             {TIER_FILTERS.map((tier) => {
               const active = tierFilter === tier;
+              const label =
+                tier === 'Todos'
+                  ? dict.users.filterAll
+                  : translateTier(language, tier);
               return (
                 <button
                   key={tier}
@@ -383,7 +400,7 @@ export default function UtilizadoresPage() {
                       : 'bg-[#090C14] text-slate-300 border border-white/[0.08] hover:text-white hover:border-white/20'
                   }`}
                 >
-                  {tier}
+                  {label}
                 </button>
               );
             })}
@@ -421,13 +438,13 @@ export default function UtilizadoresPage() {
             <div className="space-y-1">
               <p className="text-base font-bold text-white">
                 {users.length === 0
-                  ? 'Nenhum utilizador encontrado ainda'
-                  : 'Nenhum utilizador corresponde ao filtro'}
+                  ? dict.users.emptyAll
+                  : dict.users.emptyFilter}
               </p>
               <p className="text-xs text-slate-400">
                 {users.length === 0
-                  ? 'Os utilizadores aparecem aqui automaticamente após entrarem na plataforma.'
-                  : 'Tenta limpar a pesquisa ou selecionar outro nível de condução.'}
+                  ? dict.users.emptyAllSub
+                  : dict.users.emptyFilterSub}
               </p>
             </div>
             {users.length === 0 ? (
@@ -436,7 +453,7 @@ export default function UtilizadoresPage() {
                 className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-semibold text-white whitespace-nowrap"
               >
                 <Radio className="w-4 h-4" />
-                Ir para Salas ao Vivo
+                {dict.users.goToRooms}
               </Link>
             ) : (
               <button
@@ -447,7 +464,7 @@ export default function UtilizadoresPage() {
                 }}
                 className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
               >
-                Limpar filtros
+                {dict.users.clearFilters}
               </button>
             )}
           </div>
@@ -468,7 +485,7 @@ export default function UtilizadoresPage() {
                       <div className="relative w-14 h-14 rounded-full overflow-hidden border border-white/15 shrink-0 bg-[#090C14]">
                         <Image
                           src={u.photoURL || defaultAvatarImg}
-                          alt={u.displayName || 'Utilizador'}
+                          alt={u.displayName || dict.common.driverDefault}
                           fill
                           sizes="56px"
                           className="object-cover"
@@ -479,11 +496,11 @@ export default function UtilizadoresPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 min-w-0">
                           <h3 className="text-base font-bold text-white truncate">
-                            {u.displayName || 'Condutor'}
+                            {u.displayName || dict.common.driverDefault}
                           </h3>
                           {isMe && (
                             <span className="text-[11px] font-semibold text-red-400 shrink-0">
-                              (Tu)
+                              ({dict.common.you})
                             </span>
                           )}
                         </div>
@@ -494,19 +511,22 @@ export default function UtilizadoresPage() {
                             className={`inline-flex items-center gap-1 font-semibold ${getTierAccentClass(u.level)}`}
                           >
                             {getTierIcon(u.level)}
-                            {u.level}
+                            {translateTier(language, u.level)}
                           </span>
                           <span className="text-slate-600" aria-hidden="true">
                             ·
                           </span>
                           <span className="font-mono-tabular text-amber-400 font-semibold tabular-nums">
-                            {(u.totalPoints || 0).toLocaleString('pt-AO')} pts
+                            {formatNumberLocale(language, u.totalPoints || 0)} {dict.common.pts}
                           </span>
                           <span className="text-slate-600" aria-hidden="true">
                             ·
                           </span>
                           <span className="font-mono-tabular text-slate-400 tabular-nums">
-                            {u.gamesPlayed || 0} jogos · {u.accuracy}% acerto
+                            {tFormat(dict.users.cardStatsMeta, {
+                              games: u.gamesPlayed || 0,
+                              acc: u.accuracy,
+                            })}
                           </span>
                         </div>
                       </div>
@@ -517,7 +537,7 @@ export default function UtilizadoresPage() {
                       onClick={() => setSelectedUid(u.uid)}
                       className="min-h-[36px] px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-xs font-semibold text-slate-200 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      Detalhes
+                      {dict.common.details}
                     </button>
                   </div>
 
@@ -525,19 +545,21 @@ export default function UtilizadoresPage() {
                   <div className="pt-3 border-t border-white/[0.07] space-y-2.5 min-w-0">
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="font-semibold text-slate-300">
-                        Prêmios & Troféus
+                        {dict.users.prizesTrophiesLabel}
                       </span>
                       <span className="font-mono-tabular text-slate-400 tabular-nums">
-                        {u.userAchievements.length} conquistas
+                        {tFormat(dict.users.achievementsCount, {
+                          count: u.userAchievements.length,
+                        })}
                         {u.wins > 0
-                          ? ` · ${u.wins} ${u.wins === 1 ? 'vitória' : 'vitórias'}`
+                          ? ` · ${u.wins} ${u.wins === 1 ? dict.users.winSingle : dict.users.winPlural}`
                           : ''}
                       </span>
                     </div>
 
                     {u.userAchievements.length === 0 && (u.wins || 0) === 0 ? (
                       <p className="text-xs text-slate-500">
-                        Nenhum prêmio conquistado ainda.
+                        {dict.users.noPrizesYet}
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
@@ -547,25 +569,33 @@ export default function UtilizadoresPage() {
                             <span className="font-mono-tabular tabular-nums">
                               {u.wins}{' '}
                               {u.wins === 1
-                                ? 'Troféu de 1.º Lugar'
-                                : 'Troféus de 1.º Lugar'}
+                                ? dict.users.trophyFirstSingle
+                                : dict.users.trophyFirstPlural}
                             </span>
                           </div>
                         )}
-                        {u.userAchievements.map((ach) => (
-                          <div
-                            key={`${u.uid}_${ach.achievementId}`}
-                            title={ach.description}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium ${getPrizeColor(ach.tier)}`}
-                          >
-                            {ach.tier === 'gold' ? (
-                              <Award className="w-3.5 h-3.5 shrink-0" />
-                            ) : (
-                              <Medal className="w-3.5 h-3.5 shrink-0" />
-                            )}
-                            <span>{ach.title}</span>
-                          </div>
-                        ))}
+                        {u.userAchievements.map((ach) => {
+                          const translated = translateAchievement(
+                            language,
+                            ach.achievementId,
+                            ach.title,
+                            ach.description
+                          );
+                          return (
+                            <div
+                              key={`${u.uid}_${ach.achievementId}`}
+                              title={translated.description}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium ${getPrizeColor(ach.tier)}`}
+                            >
+                              {ach.tier === 'gold' ? (
+                                <Award className="w-3.5 h-3.5 shrink-0" />
+                              ) : (
+                                <Medal className="w-3.5 h-3.5 shrink-0" />
+                              )}
+                              <span>{translated.title}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -591,7 +621,7 @@ export default function UtilizadoresPage() {
                 <div className="relative w-16 h-16 rounded-full overflow-hidden border border-white/20 shrink-0 bg-[#090C14]">
                   <Image
                     src={selectedUser.photoURL || defaultAvatarImg}
-                    alt={selectedUser.displayName || 'Utilizador'}
+                    alt={selectedUser.displayName || dict.common.driverDefault}
                     fill
                     sizes="64px"
                     className="object-cover"
@@ -600,28 +630,32 @@ export default function UtilizadoresPage() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-lg font-extrabold text-white truncate">
-                    {selectedUser.displayName || 'Condutor'}
+                    {selectedUser.displayName || dict.common.driverDefault}
                   </h3>
                   <div className="flex items-center gap-1.5 text-xs mt-0.5">
                     {getTierIcon(selectedUser.level)}
                     <span
                       className={`font-semibold ${getTierAccentClass(selectedUser.level)}`}
                     >
-                      Nível: {selectedUser.level}
+                      {tFormat(dict.users.levelPrefix, {
+                        level: translateTier(language, selectedUser.level),
+                      })}
                     </span>
                   </div>
                   <p className="font-mono-tabular text-xs text-slate-400 mt-1 tabular-nums">
-                    {(selectedUser.totalPoints || 0).toLocaleString('pt-AO')}{' '}
-                    pts · {selectedUser.gamesPlayed || 0} jogos ·{' '}
-                    {selectedUser.accuracy}% acerto · Melhor série:{' '}
-                    {selectedUser.bestStreak || 0}
+                    {tFormat(dict.users.modalStatsLine, {
+                      pts: formatNumberLocale(language, selectedUser.totalPoints || 0),
+                      games: selectedUser.gamesPlayed || 0,
+                      acc: selectedUser.accuracy,
+                      streak: selectedUser.bestStreak || 0,
+                    })}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedUid(null)}
-                aria-label="Fechar detalhes do utilizador"
+                aria-label={dict.users.closeDetailsAria}
                 className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.06] cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
@@ -630,7 +664,7 @@ export default function UtilizadoresPage() {
 
             <div className="pt-4 border-t border-white/[0.08] space-y-3">
               <h4 className="text-sm font-bold text-white">
-                Prêmios e Troféus Desbloqueados
+                {dict.users.unlockedPrizesHeading}
               </h4>
 
               {selectedUser.wins > 0 && (
@@ -639,10 +673,10 @@ export default function UtilizadoresPage() {
                     <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-white">
-                        Vitórias em Salas ao Vivo
+                        {dict.users.roomWinsCardTitle}
                       </p>
                       <p className="text-xs text-slate-300">
-                        1.º lugar alcançado em competições oficiais.
+                        {dict.users.roomWinsCardDesc}
                       </p>
                     </div>
                   </div>
@@ -654,41 +688,48 @@ export default function UtilizadoresPage() {
 
               {selectedUser.userAchievements.length === 0 ? (
                 <p className="text-xs text-slate-400 py-2">
-                  Este utilizador ainda não desbloqueou medalhas no catálogo de
-                  conquistas.
+                  {dict.users.noUnlockedMedals}
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {selectedUser.userAchievements.map((ach) => (
-                    <div
-                      key={`${selectedUser.uid}_detail_${ach.achievementId}`}
-                      className="p-3.5 rounded-xl bg-[#090C14] border border-white/[0.08] flex items-start justify-between gap-3"
-                    >
-                      <div className="flex items-start gap-3 min-w-0">
-                        <Award
-                          className={`w-5 h-5 shrink-0 mt-0.5 ${
-                            ach.tier === 'gold'
-                              ? 'text-amber-400'
-                              : ach.tier === 'silver'
-                                ? 'text-slate-200'
-                                : 'text-orange-400'
-                          }`}
-                        />
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-white">
-                            {ach.title}
-                          </p>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {ach.description}
-                          </p>
+                  {selectedUser.userAchievements.map((ach) => {
+                    const translated = translateAchievement(
+                      language,
+                      ach.achievementId,
+                      ach.title,
+                      ach.description
+                    );
+                    return (
+                      <div
+                        key={`${selectedUser.uid}_detail_${ach.achievementId}`}
+                        className="p-3.5 rounded-xl bg-[#090C14] border border-white/[0.08] flex items-start justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <Award
+                            className={`w-5 h-5 shrink-0 mt-0.5 ${
+                              ach.tier === 'gold'
+                                ? 'text-amber-400'
+                                : ach.tier === 'silver'
+                                  ? 'text-slate-200'
+                                  : 'text-orange-400'
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-white">
+                              {translated.title}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {translated.description}
+                            </p>
+                          </div>
                         </div>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 whitespace-nowrap shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          {formatUnlockedDate(ach.unlockedAt)}
+                        </span>
                       </div>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 whitespace-nowrap shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        {formatUnlockedDate(ach.unlockedAt)}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

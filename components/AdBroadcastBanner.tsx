@@ -18,6 +18,7 @@ import {
   FacebookStyleAdCard,
   FullscreenVideoAdModal,
 } from './FacebookAdUnit';
+import { useLanguage } from './LanguageProvider';
 
 const LS_LAST_SHOWN = 'escola_ad_last_shown_at';
 const LS_CURSOR = 'escola_ad_cursor';
@@ -28,26 +29,26 @@ interface StoredActiveWindow {
   expiresAtMs: number;
 }
 
-function getKindBadge(kind: BroadcastItem['kind']): string {
-  switch (kind) {
-    case 'ad_audio':
-      return 'Anúncio Áudio';
-    case 'ad_video':
-      return 'Anúncio Vídeo';
-    case 'ad_banner':
-      return 'Anúncio';
-    case 'link':
-      return 'Destaque';
-    default:
-      return 'Aviso';
-  }
-}
-
 export function AdBroadcastBanner({
   broadcasts,
 }: {
   broadcasts: BroadcastItem[];
 }) {
+  const { language, dict } = useLanguage();
+  const getKindBadge = (kind: BroadcastItem['kind']): string => {
+    switch (kind) {
+      case 'ad_audio':
+        return dict.ads.kindAudio;
+      case 'ad_video':
+        return dict.ads.kindVideo;
+      case 'ad_banner':
+        return dict.ads.kindBanner;
+      case 'link':
+        return dict.ads.kindLink;
+      default:
+        return dict.ads.kindInfo;
+    }
+  };
   const bannerPool = useMemo(
     () => broadcasts.filter((b) => b.active && b.showInBanner),
     [broadcasts]
@@ -215,6 +216,7 @@ export function AdBroadcastBanner({
         },
         body: JSON.stringify({
           text: `${activeAd.title}. ${activeAd.body}`,
+          language,
         }),
       });
       if (!res.ok) return;
@@ -270,7 +272,7 @@ export function AdBroadcastBanner({
     return (
       <div
         role="region"
-        aria-label="Anúncio Patrocinado"
+        aria-label={dict.ads.sponsored}
         className="w-full bg-[#090D16] border-b border-white/[0.08] py-3 px-3 sm:px-6 lg:px-8 z-10"
       >
         <div className="max-w-3xl mx-auto">
@@ -294,7 +296,7 @@ export function AdBroadcastBanner({
   return (
     <div
       role="region"
-      aria-label="Anúncio ou Notificação"
+      aria-label={dict.ads.kindInfo}
       className="w-full bg-[#111626] border-b border-amber-500/30 shadow-lg z-10 overflow-hidden"
     >
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 min-w-0">
@@ -350,10 +352,10 @@ export function AdBroadcastBanner({
                   <Play className="w-3.5 h-3.5" />
                 )}
                 {audioLoading
-                  ? 'A carregar...'
+                  ? dict.ads.loadingAudio
                   : audioPlaying
-                    ? 'Pausar Áudio'
-                    : 'Ouvir Áudio'}
+                    ? dict.ads.pauseAudio
+                    : dict.ads.listenAudio}
               </button>
             )}
           </div>
@@ -366,7 +368,7 @@ export function AdBroadcastBanner({
                 href={safeLink}
                 className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap"
               >
-                <span>{activeAd.linkLabel || 'Abrir'}</span>
+                <span>{activeAd.linkLabel || dict.common.open}</span>
                 <ExternalLink className="w-3 h-3" />
               </Link>
             ) : (
@@ -376,7 +378,7 @@ export function AdBroadcastBanner({
                 rel="noopener noreferrer"
                 className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap"
               >
-                <span>{activeAd.linkLabel || 'Abrir Link'}</span>
+                <span>{activeAd.linkLabel || dict.common.openLink}</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             ))}
@@ -384,8 +386,8 @@ export function AdBroadcastBanner({
           <button
             type="button"
             onClick={dismissAd}
-            aria-label="Fechar anúncio"
-            title="Fechar anúncio"
+            aria-label={dict.ads.closeAdLabel}
+            title={dict.ads.closeAdLabel}
             className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />

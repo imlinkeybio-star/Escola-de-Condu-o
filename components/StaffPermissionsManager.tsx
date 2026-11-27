@@ -22,6 +22,8 @@ import {
   upsertStaffPermission,
 } from '@/lib/firestore-service';
 import { APP_OWNER_EMAIL } from '@/lib/url-safety';
+import { useLanguage } from './LanguageProvider';
+import { tFormat } from '@/lib/i18n';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -36,6 +38,7 @@ function toMillis(ts: unknown): number {
 
 export function StaffPermissionsManager() {
   const { user, isOwner } = useAuth();
+  const { dict } = useLanguage();
   const [list, setList] = useState<StaffPermission[]>([]);
 
   const [email, setEmail] = useState('');
@@ -76,7 +79,7 @@ export function StaffPermissionsManager() {
     setFeedback('');
 
     if (!canViewReserved && !canAdmin && !canAnnounce) {
-      setError('Seleciona pelo menos uma permissão para este email.');
+      setError(dict.permissoes.saveErr);
       return;
     }
 
@@ -96,11 +99,11 @@ export function StaffPermissionsManager() {
       setCanAdmin(false);
       setCanAnnounce(false);
       setFeedback(
-        `Permissões guardadas para ${saved.email}. A conta já pode aceder às telas reservadas selecionadas.`
+        tFormat(dict.permissoes.managerUpdatedMsg, { email: saved.email })
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Erro ao guardar permissões.'
+        err instanceof Error ? err.message : dict.permissoes.saveErr
       );
     } finally {
       setSaving(false);
@@ -128,7 +131,7 @@ export function StaffPermissionsManager() {
       });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Erro ao atualizar permissão.'
+        err instanceof Error ? err.message : dict.permissoes.updateErr
       );
     }
   };
@@ -139,10 +142,12 @@ export function StaffPermissionsManager() {
     try {
       await deleteStaffPermission(targetEmail);
       setConfirmRemoveEmail(null);
-      setFeedback(`Acesso removido para ${targetEmail}.`);
+      setFeedback(
+        tFormat(dict.permissoes.managerRemovedMsg, { email: targetEmail })
+      );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Erro ao remover acesso.'
+        err instanceof Error ? err.message : dict.permissoes.removeErr
       );
     }
   };
@@ -170,47 +175,45 @@ export function StaffPermissionsManager() {
           <div className="flex items-center gap-2">
             <MailPlus className="w-5 h-5 text-amber-400 shrink-0" />
             <h3 className="text-base font-bold text-white">
-              Adicionar Email Permitido
+              {dict.permissoes.formTitle}
             </h3>
           </div>
 
           <p className="text-xs text-slate-400 leading-relaxed">
-            Apenas <strong className="text-white">{APP_OWNER_EMAIL}</strong> e os
-            emails ativos abaixo podem ver e aceder às telas reservadas. O
-            utilizador deve iniciar sessão com Google ou email verificado.
+            {tFormat(dict.permissoes.formDesc, { owner: APP_OWNER_EMAIL })}
           </p>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-300">
-              Email da Pessoa Autorizada
+              {dict.permissoes.emailLabel}
             </label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="colaborador@gmail.com"
+              placeholder={dict.permissoes.emailPlaceholder}
               className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-amber-400"
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-300">
-              Nome ou Cargo (opcional)
+              {dict.permissoes.roleLabel}
             </label>
             <input
               type="text"
               maxLength={60}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Ex: Instrutor Chefe"
+              placeholder={dict.permissoes.rolePlaceholder}
               className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-amber-400"
             />
           </div>
 
           <div className="space-y-2 pt-1">
             <p className="text-xs font-bold text-slate-300">
-              Permissões Atribuídas
+              {dict.permissoes.permsHeading}
             </p>
 
             <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#090C14] border border-white/10 cursor-pointer">
@@ -222,11 +225,10 @@ export function StaffPermissionsManager() {
               />
               <div className="min-w-0">
                 <span className="text-xs font-bold text-white block">
-                  Ver outras telas reservadas
+                  {dict.permissoes.permViewTitle}
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Visualizar painel de administração, salas, utilizadores e
-                  auditoria em tempo real.
+                  {dict.permissoes.permViewDesc}
                 </span>
               </div>
             </label>
@@ -244,11 +246,10 @@ export function StaffPermissionsManager() {
               />
               <div className="min-w-0">
                 <span className="text-xs font-bold text-white block">
-                  Administrar
+                  {dict.permissoes.permAdminTitle}
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Criar/eliminar salas, gerir utilizadores e adicionar perguntas
-                  oficiais.
+                  {dict.permissoes.permAdminDesc}
                 </span>
               </div>
             </label>
@@ -266,11 +267,10 @@ export function StaffPermissionsManager() {
               />
               <div className="min-w-0">
                 <span className="text-xs font-bold text-white block">
-                  Anunciar & Enviar Notificações IA
+                  {dict.permissoes.permAnnounceTitle}
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Aceder à tela de anúncios, publicar avisos com links, áudio,
-                  vídeo e usar a IA.
+                  {dict.permissoes.permAnnounceDesc}
                 </span>
               </div>
             </label>
@@ -282,7 +282,7 @@ export function StaffPermissionsManager() {
             className="w-full min-h-[46px] rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
           >
             <UserCheck className="w-4 h-4 shrink-0" />
-            {saving ? 'A guardar...' : 'Adicionar / Atualizar Permissão'}
+            {saving ? dict.common.saving : dict.permissoes.addUpdateBtn}
           </button>
         </form>
 
@@ -290,10 +290,10 @@ export function StaffPermissionsManager() {
         <div className="lg:col-span-7 bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-base font-bold text-white">
-              Emails com Acesso Reservado ({list.length})
+              {tFormat(dict.permissoes.listTitle, { count: list.length })}
             </h3>
             <span className="text-[11px] font-semibold text-amber-400 whitespace-nowrap">
-              Dono: {APP_OWNER_EMAIL}
+              {tFormat(dict.permissoes.ownerTag, { owner: APP_OWNER_EMAIL })}
             </span>
           </div>
 
@@ -301,11 +301,10 @@ export function StaffPermissionsManager() {
             <div className="py-10 text-center space-y-2 border border-dashed border-white/10 rounded-xl px-4">
               <Shield className="w-7 h-7 text-slate-500 mx-auto" />
               <p className="text-sm font-semibold text-slate-300">
-                Nenhum email adicional configurado
+                {dict.permissoes.emptyTitle}
               </p>
               <p className="text-xs text-slate-400">
-                Neste momento apenas {APP_OWNER_EMAIL} tem acesso às telas
-                reservadas.
+                {tFormat(dict.permissoes.emptyDesc, { owner: APP_OWNER_EMAIL })}
               </p>
             </div>
           ) : (
@@ -343,12 +342,12 @@ export function StaffPermissionsManager() {
                         {item.active ? (
                           <>
                             <PlayCircle className="w-3 h-3" />
-                            Ativo
+                            {dict.permissoes.activeBtn}
                           </>
                         ) : (
                           <>
                             <PauseCircle className="w-3 h-3" />
-                            Suspenso
+                            {dict.permissoes.suspendedBtn}
                           </>
                         )}
                       </button>
@@ -360,7 +359,7 @@ export function StaffPermissionsManager() {
                             onClick={() => void handleRemove(item.email)}
                             className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold cursor-pointer"
                           >
-                            Confirmar
+                            {dict.common.confirm}
                           </button>
                           <button
                             type="button"
@@ -374,7 +373,7 @@ export function StaffPermissionsManager() {
                         <button
                           type="button"
                           onClick={() => setConfirmRemoveEmail(item.email)}
-                          aria-label={`Remover ${item.email}`}
+                          aria-label={item.email}
                           className="p-1.5 rounded-lg bg-red-600/15 hover:bg-red-600/30 text-red-300 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -397,7 +396,7 @@ export function StaffPermissionsManager() {
                       }`}
                     >
                       <Eye className="w-3 h-3" />
-                      Ver Telas
+                      {dict.permissoes.toggleView}
                     </button>
 
                     <button
@@ -410,7 +409,7 @@ export function StaffPermissionsManager() {
                       }`}
                     >
                       <Shield className="w-3 h-3" />
-                      Administrar
+                      {dict.permissoes.toggleAdmin}
                     </button>
 
                     <button
@@ -425,7 +424,7 @@ export function StaffPermissionsManager() {
                       }`}
                     >
                       <Megaphone className="w-3 h-3" />
-                      Anunciar
+                      {dict.permissoes.toggleAnnounce}
                     </button>
                   </div>
                 </div>

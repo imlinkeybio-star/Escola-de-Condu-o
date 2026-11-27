@@ -23,6 +23,7 @@ import {
   parseCleanVideoSource,
   sanitizeSafeUrl,
 } from '@/lib/url-safety';
+import { useLanguage } from './LanguageProvider';
 
 interface CleanShieldedVideoProps {
   mediaUrl?: string | null;
@@ -45,6 +46,7 @@ export function CleanShieldedVideo({
   fullscreen = false,
   onTogglePlay,
 }: CleanShieldedVideoProps) {
+  const { dict } = useLanguage();
   const source = parseCleanVideoSource(mediaUrl);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -151,7 +153,7 @@ export function CleanShieldedVideo({
             <Play className="w-5 h-5 text-white fill-white ml-0.5" />
           </div>
           <p className="text-xs font-semibold text-slate-300">
-            A preparar anúncio em vídeo...
+            {dict.ads.preparingVideo}
           </p>
         </div>
       )}
@@ -163,7 +165,7 @@ export function CleanShieldedVideo({
             <Play className="w-7 h-7 fill-white ml-1" />
           </div>
           <span className="text-xs font-bold text-white tracking-wide">
-            Vídeo em pausa — Clica para retomar
+            {dict.ads.pausedClickResume}
           </span>
         </div>
       )}
@@ -189,6 +191,7 @@ export function FullscreenVideoAdModal({
   isPreview = false,
   onClose,
 }: FullscreenVideoAdModalProps) {
+  const { dict } = useLanguage();
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
 
@@ -215,7 +218,7 @@ export function FullscreenVideoAdModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Anúncio em vídeo: ${ad.title}`}
+      aria-label={`${dict.ads.kindVideo}: ${ad.title}`}
       className="fixed inset-0 z-[100] w-screen h-[100dvh] bg-black flex flex-col overflow-hidden"
     >
       {/* Full-viewport shielded video canvas */}
@@ -235,7 +238,7 @@ export function FullscreenVideoAdModal({
             <div className="w-10 h-10 rounded-full bg-white p-1 shrink-0 ring-2 ring-[#1877F2]/60 flex items-center justify-center overflow-hidden">
               <Image
                 src="/assets/aistudio/favicon_14076ff5.png"
-                alt="Escola de Condução Live"
+                alt={dict.common.brandName}
                 width={36}
                 height={28}
                 className="w-full h-full object-contain"
@@ -245,19 +248,19 @@ export function FullscreenVideoAdModal({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-bold text-white truncate">
-                  Escola de Condução Live
+                  {dict.common.brandName}
                 </span>
                 <BadgeCheck className="w-4 h-4 text-[#1877F2] shrink-0" />
               </div>
               <div className="flex items-center gap-1.5 text-xs text-slate-300">
-                <span>Patrocinado</span>
+                <span>{dict.ads.sponsored}</span>
                 <span aria-hidden="true">·</span>
                 <Globe className="w-3 h-3 text-slate-300 shrink-0" />
                 {isPreview ? (
                   <>
                     <span aria-hidden="true">·</span>
                     <span className="text-amber-300 font-semibold">
-                      Pré-visualização
+                      {dict.ads.preview}
                     </span>
                   </>
                 ) : (
@@ -277,12 +280,12 @@ export function FullscreenVideoAdModal({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar anúncio em tela inteira"
-            title="Fechar anúncio"
+            aria-label={dict.ads.closeAdFullscreenAria}
+            title={dict.ads.closeAdLabel}
             className="min-w-[44px] min-h-[44px] px-3 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center gap-1.5 text-xs font-bold backdrop-blur-md cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
-            <span className="hidden sm:inline">Fechar</span>
+            <span className="hidden sm:inline">{dict.common.close}</span>
           </button>
         </div>
 
@@ -312,7 +315,7 @@ export function FullscreenVideoAdModal({
                 ) : (
                   <Play className="w-4 h-4 fill-white" />
                 )}
-                {playing ? 'Pausar' : 'Reproduzir'}
+                {playing ? dict.ads.pauseBtn : dict.ads.playBtn}
               </button>
 
               <button
@@ -329,7 +332,7 @@ export function FullscreenVideoAdModal({
                 ) : (
                   <Volume2 className="w-4 h-4" />
                 )}
-                {muted ? 'Ativar Som' : 'Som Ativo'}
+                {muted ? dict.ads.unmuteBtn : dict.ads.soundOnBtn}
               </button>
 
               {safeLink &&
@@ -339,7 +342,7 @@ export function FullscreenVideoAdModal({
                     onClick={onClose}
                     className="min-h-[42px] px-5 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
                   >
-                    <span>{ad.linkLabel || 'Saber Mais'}</span>
+                    <span>{ad.linkLabel || dict.common.learnMore}</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </Link>
                 ) : (
@@ -349,7 +352,7 @@ export function FullscreenVideoAdModal({
                     rel="noopener noreferrer"
                     className="min-h-[42px] px-5 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
                   >
-                    <span>{ad.linkLabel || 'Saber Mais'}</span>
+                    <span>{ad.linkLabel || dict.common.learnMore}</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 ))}
@@ -390,6 +393,7 @@ export function FacebookStyleAdCard({
   onDismiss,
   onOpenFullscreen,
 }: FacebookStyleAdCardProps) {
+  const { dict } = useLanguage();
   const [imgError, setImgError] = useState(false);
   const safeLink = sanitizeSafeUrl(ad.linkUrl);
   const safeMedia = sanitizeSafeUrl(ad.mediaUrl);
@@ -402,7 +406,7 @@ export function FacebookStyleAdCard({
 
   return (
     <article
-      aria-label={`Anúncio patrocinado: ${ad.title}`}
+      aria-label={`${dict.ads.sponsored}: ${ad.title}`}
       className="bg-[#141925] border border-white/[0.1] rounded-2xl overflow-hidden shadow-xl min-w-0"
     >
       {/* Facebook Sponsored Header */}
@@ -411,7 +415,7 @@ export function FacebookStyleAdCard({
           <div className="w-10 h-10 rounded-full bg-white p-1 shrink-0 ring-1 ring-white/20 flex items-center justify-center overflow-hidden">
             <Image
               src="/assets/aistudio/favicon_14076ff5.png"
-              alt="Escola de Condução Live"
+              alt={dict.common.brandName}
               width={36}
               height={28}
               className="w-full h-full object-contain"
@@ -421,12 +425,12 @@ export function FacebookStyleAdCard({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-bold text-white truncate">
-                Escola de Condução Live
+                {dict.common.brandName}
               </span>
               <BadgeCheck className="w-4 h-4 text-[#1877F2] shrink-0" />
             </div>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span>Patrocinado</span>
+              <span>{dict.ads.sponsored}</span>
               <span aria-hidden="true">·</span>
               <Globe className="w-3 h-3 shrink-0" />
               {ad.aiGenerated && (
@@ -454,8 +458,8 @@ export function FacebookStyleAdCard({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Fechar anúncio"
-            title="Fechar anúncio"
+            aria-label={dict.ads.closeAdLabel}
+            title={dict.ads.closeAdLabel}
             className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
@@ -508,7 +512,7 @@ export function FacebookStyleAdCard({
               className="min-h-[44px] px-4 py-2.5 rounded-full bg-[#1877F2]/95 hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 shadow-2xl cursor-pointer"
             >
               <Maximize2 className="w-4 h-4" />
-              Ver em Tela Inteira
+              {dict.ads.previewFullscreenBtn}
             </button>
           </div>
         </div>
@@ -536,7 +540,7 @@ export function FacebookStyleAdCard({
         >
           <div className="min-w-0 space-y-1">
             <p className="text-[11px] font-semibold tracking-wider text-sky-300 uppercase">
-              Campanha Oficial
+              {dict.ads.officialCampaign}
             </p>
             <p className="font-display text-lg sm:text-2xl font-extrabold text-white leading-snug break-words">
               {ad.title}
@@ -565,7 +569,7 @@ export function FacebookStyleAdCard({
               className="min-h-[40px] px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <Maximize2 className="w-3.5 h-3.5" />
-              Tela Inteira
+              {dict.ads.fullscreenBtn}
             </button>
           )}
 
@@ -575,7 +579,7 @@ export function FacebookStyleAdCard({
                 href={safeLink}
                 className="min-h-[40px] px-4 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
               >
-                <span>{ad.linkLabel || 'Saber Mais'}</span>
+                <span>{ad.linkLabel || dict.common.learnMore}</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </Link>
             ) : (
@@ -585,7 +589,7 @@ export function FacebookStyleAdCard({
                 rel="noopener noreferrer"
                 className="min-h-[40px] px-4 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
               >
-                <span>{ad.linkLabel || 'Saber Mais'}</span>
+                <span>{ad.linkLabel || dict.common.learnMore}</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             ))}

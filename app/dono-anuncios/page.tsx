@@ -43,34 +43,8 @@ import {
   APP_OWNER_USERNAME,
   sanitizeSafeUrl,
 } from '@/lib/url-safety';
-
-const KIND_OPTIONS: Array<{ value: BroadcastKind; label: string; desc: string }> = [
-  {
-    value: 'informative',
-    label: 'Notificação Informativa',
-    desc: 'Aviso pedagógico, novidade ou alerta oficial.',
-  },
-  {
-    value: 'link',
-    label: 'Notificação com Link Clicável',
-    desc: 'Direciona alunos para uma página interna ou site externo.',
-  },
-  {
-    value: 'ad_banner',
-    label: 'Anúncio Banner Facebook (10s / 15min)',
-    desc: 'Cartão patrocinado no estilo Facebook abaixo da barra superior.',
-  },
-  {
-    value: 'ad_audio',
-    label: 'Anúncio de Áudio (MP3 ou Voz IA)',
-    desc: 'Reprodutor de áudio ou locução automática em português.',
-  },
-  {
-    value: 'ad_video',
-    label: 'Anúncio de Vídeo em Tela Inteira (Modelo Facebook)',
-    desc: 'Reprodução em tela cheia com pré-visualização limpa e sem definições ou spoilers do site de origem.',
-  },
-];
+import { useLanguage } from '@/components/LanguageProvider';
+import { tFormat } from '@/lib/i18n';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -85,8 +59,37 @@ function toMillis(ts: unknown): number {
 
 export default function DonoAnunciosPage() {
   const { user, isOwner, canAnnounce, loading } = useAuth();
+  const { language, dict } = useLanguage();
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
   const [section, setSection] = useState<'anuncios' | 'permissoes'>('anuncios');
+
+  const kindOptions: Array<{ value: BroadcastKind; label: string; desc: string }> = [
+    {
+      value: 'informative',
+      label: dict.donoAnuncios.kindInformative,
+      desc: dict.donoAnuncios.kindInformativeDesc,
+    },
+    {
+      value: 'link',
+      label: dict.donoAnuncios.kindLink,
+      desc: dict.donoAnuncios.kindLinkDesc,
+    },
+    {
+      value: 'ad_banner',
+      label: dict.donoAnuncios.kindBanner,
+      desc: dict.donoAnuncios.kindBannerDesc,
+    },
+    {
+      value: 'ad_audio',
+      label: dict.donoAnuncios.kindAudio,
+      desc: dict.donoAnuncios.kindAudioDesc,
+    },
+    {
+      value: 'ad_video',
+      label: dict.donoAnuncios.kindVideo,
+      desc: dict.donoAnuncios.kindVideoDesc,
+    },
+  ];
 
   // Form states
   const [kind, setKind] = useState<BroadcastKind>('ad_banner');
@@ -94,7 +97,7 @@ export default function DonoAnunciosPage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
-  const [linkLabel, setLinkLabel] = useState('Saber Mais');
+  const [linkLabel, setLinkLabel] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
   const [showInBanner, setShowInBanner] = useState(true);
   const [durationSeconds, setDurationSeconds] = useState(10);
@@ -129,21 +132,20 @@ export default function DonoAnunciosPage() {
 
   if (!loading && !canAccess) {
     return (
-      <AppShell title="Área Reservada a Anúncios">
+      <AppShell title={dict.donoAnuncios.titleStaff}>
         <div className="bg-[#111520] border border-red-500/30 rounded-2xl p-8 text-center space-y-3 max-w-lg mx-auto">
           <ShieldAlert className="w-10 h-10 text-red-500 mx-auto" />
           <h2 className="text-xl font-bold text-white">
-            Acesso Restrito
+            {dict.donoAnuncios.restrictedTitle}
           </h2>
           <p className="text-sm text-slate-400">
-            Apenas {APP_OWNER_EMAIL} e utilizadores com permissão para anunciar
-            podem aceder a esta tela reservada.
+            {tFormat(dict.donoAnuncios.restrictedDesc, { owner: APP_OWNER_EMAIL })}
           </p>
           <Link
             href="/dashboard"
             className="inline-block px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
           >
-            Voltar ao Dashboard
+            {dict.donoAnuncios.backDashboard}
           </Link>
         </div>
       </AppShell>
@@ -154,13 +156,13 @@ export default function DonoAnunciosPage() {
     setError('');
     setFeedback('');
     if (topic.trim().length < 3) {
-      setError('Escreve um tema ou ideia curta para a IA redigir o anúncio/notificação.');
+      setError(dict.donoAnuncios.aiTopicRequired);
       return;
     }
     setGeneratingAi(true);
     try {
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error('Sessão expirada.');
+      if (!currentUser) throw new Error(dict.donoAnuncios.aiGenError);
       const idToken = await currentUser.getIdToken();
       const res = await fetch('/api/ai/generate-notification', {
         method: 'POST',
@@ -168,7 +170,7 @@ export default function DonoAnunciosPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${idToken}`,
         },
-        body: JSON.stringify({ kind, topic }),
+        body: JSON.stringify({ kind, topic, language }),
       });
       const json = (await res.json()) as {
         title?: string;
@@ -176,14 +178,14 @@ export default function DonoAnunciosPage() {
         suggestedLinkLabel?: string;
         error?: string;
       };
-      if (!res.ok) throw new Error(json.error || 'Erro ao gerar com IA.');
+      if (!res.ok) throw new Error(json.error || dict.donoAnuncios.aiGenError);
       setTitle(json.title || '');
       setBody(json.body || '');
       if (json.suggestedLinkLabel) setLinkLabel(json.suggestedLinkLabel);
       setAiGenerated(true);
-      setFeedback('Texto gerado com IA em tempo real! Revê os campos e clica em Publicar.');
+      setFeedback(dict.donoAnuncios.aiGeneratedSuccess);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao gerar com IA.');
+      setError(err instanceof Error ? err.message : dict.donoAnuncios.aiGenError);
     } finally {
       setGeneratingAi(false);
     }
@@ -200,7 +202,7 @@ export default function DonoAnunciosPage() {
         title,
         body,
         linkUrl: linkUrl.trim() || undefined,
-        linkLabel: linkUrl.trim() ? linkLabel.trim() || 'Abrir Link' : undefined,
+        linkLabel: linkUrl.trim() ? linkLabel.trim() || dict.common.openLink : undefined,
         mediaUrl: mediaUrl.trim() || undefined,
         aiGenerated,
         active: true,
@@ -214,10 +216,10 @@ export default function DonoAnunciosPage() {
       setLinkUrl('');
       setMediaUrl('');
       setAiGenerated(false);
-      setFeedback(`Publicado em tempo real: "${created.title}"!`);
+      setFeedback(tFormat(dict.donoAnuncios.publishedToast, { title: created.title }));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Erro ao publicar anúncio/notificação.'
+        err instanceof Error ? err.message : dict.donoAnuncios.publishError
       );
     } finally {
       setSaving(false);
@@ -226,18 +228,36 @@ export default function DonoAnunciosPage() {
 
   const handleTestLiveBanner = (item: BroadcastItem) => {
     window.dispatchEvent(new CustomEvent('escola:preview-ad', { detail: item }));
-    setFeedback(`A pré-visualizar "${item.title}" no topo abaixo da topbar (${item.durationSeconds}s).`);
+    setFeedback(
+      tFormat(dict.donoAnuncios.previewingBanner, {
+        title: item.title,
+        sec: item.durationSeconds,
+      })
+    );
+  };
+
+  const getKindShortLabel = (k: BroadcastKind): string => {
+    switch (k) {
+      case 'ad_audio':
+        return dict.ads.kindAudio;
+      case 'ad_video':
+        return dict.ads.kindVideo;
+      case 'ad_banner':
+        return dict.ads.kindBanner;
+      case 'link':
+        return dict.ads.kindLink;
+      default:
+        return dict.ads.kindInfo;
+    }
   };
 
   const draftPreviewAd: BroadcastItem = {
     id: 'draft_preview',
     kind,
-    title: title.trim() || 'Aprende o Código de Estrada com Simulados ao Vivo',
-    body:
-      body.trim() ||
-      'Prepara-te para o exame oficial de condução em Angola com perguntas geradas em tempo real.',
+    title: title.trim() || dict.landing.simultaneousTitle,
+    body: body.trim() || dict.landing.heroDesc,
     linkUrl: linkUrl.trim() || undefined,
-    linkLabel: linkLabel.trim() || 'Saber Mais',
+    linkLabel: linkLabel.trim() || dict.common.learnMore,
     mediaUrl: mediaUrl.trim() || undefined,
     aiGenerated,
     active: true,
@@ -251,7 +271,7 @@ export default function DonoAnunciosPage() {
   };
 
   return (
-    <AppShell title={isOwner ? 'Anúncios & Notificações (Dono)' : 'Anúncios & Notificações'}>
+    <AppShell title={isOwner ? dict.donoAnuncios.titleOwner : dict.donoAnuncios.titleStaff}>
       {previewModalAd && (
         <FullscreenVideoAdModal
           ad={previewModalAd}
@@ -264,16 +284,14 @@ export default function DonoAnunciosPage() {
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
               {isOwner
-                ? `Área Reservada ao Dono da App · @${APP_OWNER_USERNAME}`
-                : 'Área Reservada · Equipa Autorizada a Anunciar'}
+                ? tFormat(dict.donoAnuncios.ownerEyebrow, { user: APP_OWNER_USERNAME })
+                : dict.donoAnuncios.staffEyebrow}
             </p>
             <h2 className="font-display text-2xl font-extrabold text-white mt-0.5">
-              Gestão de Notificações IA & Anúncios Multimédia
+              {dict.donoAnuncios.pageTitle}
             </h2>
             <p className="text-xs text-slate-300 mt-1">
-              Os anúncios ativos aparecem no topo abaixo da topbar durante 10s,
-              com intervalo de 15 minutos entre exibições e botão X para os
-              alunos fecharem.
+              {dict.donoAnuncios.pageDesc}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
@@ -283,14 +301,14 @@ export default function DonoAnunciosPage() {
                 className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                Emails & Permissões
+                {dict.donoAnuncios.emailsPermBtn}
               </Link>
             )}
             <Link
               href="/notificacoes"
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold whitespace-nowrap"
             >
-              Ver Mural dos Alunos
+              {dict.donoAnuncios.studentFeedBtn}
             </Link>
           </div>
         </div>
@@ -306,7 +324,7 @@ export default function DonoAnunciosPage() {
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Anúncios & Notificações
+              {dict.donoAnuncios.tabAds}
             </button>
             <button
               type="button"
@@ -318,7 +336,7 @@ export default function DonoAnunciosPage() {
               }`}
             >
               <KeyRound className="w-3.5 h-3.5" />
-              Gerir Emails Permitidos
+              {dict.donoAnuncios.tabPerms}
             </button>
           </div>
         )}
@@ -347,26 +365,26 @@ export default function DonoAnunciosPage() {
           >
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <Megaphone className="w-5 h-5 text-red-500" />
-              Criar Nova Notificação ou Anúncio
+              {dict.donoAnuncios.createHeading}
             </h3>
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300">
-                Tipo de Comunicação
+                {dict.donoAnuncios.kindLabel}
               </label>
               <select
                 value={kind}
                 onChange={(e) => setKind(e.target.value as BroadcastKind)}
                 className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
               >
-                {KIND_OPTIONS.map((opt) => (
+                {kindOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
                 ))}
               </select>
               <p className="text-[11px] text-slate-400">
-                {KIND_OPTIONS.find((o) => o.value === kind)?.desc}
+                {kindOptions.find((o) => o.value === kind)?.desc}
               </p>
             </div>
 
@@ -374,14 +392,14 @@ export default function DonoAnunciosPage() {
             <div className="p-3.5 rounded-xl bg-[#161B29] border border-amber-500/25 space-y-2.5">
               <label className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" />
-                Gerar Conteúdo em Tempo Real com IA Gemini
+                {dict.donoAnuncios.aiBoxTitle}
               </label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Ex: Promover aulas práticas de condução em Luanda"
+                  placeholder={dict.donoAnuncios.aiTopicPlaceholder}
                   className="flex-1 min-w-0 min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
                 <button
@@ -391,14 +409,14 @@ export default function DonoAnunciosPage() {
                   className="min-h-[42px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-black font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  {generatingAi ? 'A gerar...' : 'Gerar com IA'}
+                  {generatingAi ? dict.donoAnuncios.generatingAi : dict.donoAnuncios.generateAiBtn}
                 </button>
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-300">
-                Título
+                {dict.donoAnuncios.titleLabel}
               </label>
               <input
                 type="text"
@@ -407,14 +425,14 @@ export default function DonoAnunciosPage() {
                 maxLength={120}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Título claro da notificação ou anúncio"
+                placeholder={dict.donoAnuncios.titlePlaceholder}
                 className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
               />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-300">
-                Mensagem / Texto
+                {dict.donoAnuncios.bodyLabel}
               </label>
               <textarea
                 required
@@ -423,7 +441,7 @@ export default function DonoAnunciosPage() {
                 maxLength={600}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Texto informativo ou promocional..."
+                placeholder={dict.donoAnuncios.bodyPlaceholder}
                 className="w-full p-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
               />
             </div>
@@ -431,26 +449,26 @@ export default function DonoAnunciosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300">
-                  Link Clicável (opcional)
+                  {dict.donoAnuncios.linkUrlLabel}
                 </label>
                 <input
                   type="text"
                   value={linkUrl}
                   onChange={(e) => setLinkUrl(e.target.value)}
-                  placeholder="https://... ou /salas"
+                  placeholder="https://... /salas"
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300">
-                  Texto do Botão do Link
+                  {dict.donoAnuncios.linkLabelText}
                 </label>
                 <input
                   type="text"
                   maxLength={60}
                   value={linkLabel}
                   onChange={(e) => setLinkLabel(e.target.value)}
-                  placeholder="Saber Mais"
+                  placeholder={dict.common.learnMore}
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
               </div>
@@ -467,23 +485,17 @@ export default function DonoAnunciosPage() {
                     <Video className="w-3.5 h-3.5 text-red-400" />
                   )}
                   {kind === 'ad_audio'
-                    ? 'URL do Áudio MP3/WAV (deixa vazio para usar Voz IA Portuguesa)'
+                    ? dict.donoAnuncios.mediaAudioLabel
                     : kind === 'ad_banner'
-                      ? 'URL da Imagem do Banner (opcional)'
-                      : 'URL do Vídeo (exibido em tela inteira sem mostrar o site de origem)'}
+                      ? dict.donoAnuncios.mediaBannerLabel
+                      : dict.donoAnuncios.mediaVideoLabel}
                 </label>
                 <input
                   type="text"
                   required={kind === 'ad_video'}
                   value={mediaUrl}
                   onChange={(e) => setMediaUrl(e.target.value)}
-                  placeholder={
-                    kind === 'ad_audio'
-                      ? 'https://exemplo.com/audio.mp3 (opcional)'
-                      : kind === 'ad_banner'
-                        ? 'https://exemplo.com/imagem-anuncio.jpg (opcional)'
-                        : 'https://... (MP4 direto ou link do vídeo)'
-                  }
+                  placeholder="https://..."
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
               </div>
@@ -492,7 +504,7 @@ export default function DonoAnunciosPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300">
-                  Duração por Anúncio (seg)
+                  {dict.donoAnuncios.durationLabel}
                 </label>
                 <input
                   type="number"
@@ -505,7 +517,7 @@ export default function DonoAnunciosPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300">
-                  Intervalo entre Ads (min)
+                  {dict.donoAnuncios.cooldownLabel}
                 </label>
                 <input
                   type="number"
@@ -526,8 +538,7 @@ export default function DonoAnunciosPage() {
                 className="w-4 h-4 accent-red-600"
               />
               <span>
-                Exibir automaticamente no topo abaixo da topbar (telas
-                principais e jogo)
+                {dict.donoAnuncios.showBannerCheckbox}
               </span>
             </label>
 
@@ -544,8 +555,8 @@ export default function DonoAnunciosPage() {
                 >
                   <Maximize2 className="w-4 h-4" />
                   {kind === 'ad_video'
-                    ? 'Pré-visualizar Tela Cheia'
-                    : 'Pré-visualizar no Topo'}
+                    ? dict.donoAnuncios.previewFullscreen
+                    : dict.donoAnuncios.previewTop}
                 </button>
               )}
 
@@ -555,8 +566,8 @@ export default function DonoAnunciosPage() {
                 className="flex-1 min-h-[48px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold cursor-pointer"
               >
                 {saving
-                  ? 'A publicar em tempo real...'
-                  : 'Publicar Notificação / Anúncio Agora'}
+                  ? dict.donoAnuncios.publishing
+                  : dict.donoAnuncios.publishNow}
               </button>
             </div>
           </form>
@@ -567,7 +578,7 @@ export default function DonoAnunciosPage() {
               <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-3 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-bold text-white">
-                    Pré-visualização (Modelo Facebook)
+                    {dict.donoAnuncios.previewCardTitle}
                   </h3>
                   {kind === 'ad_video' && (
                     <button
@@ -576,7 +587,7 @@ export default function DonoAnunciosPage() {
                       className="px-3 py-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                     >
                       <Maximize2 className="w-3.5 h-3.5" />
-                      Abrir Tela Inteira
+                      {dict.donoAnuncios.openFullscreen}
                     </button>
                   )}
                 </div>
@@ -590,13 +601,15 @@ export default function DonoAnunciosPage() {
             <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 space-y-4 min-w-0">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white">
-                Publicações Definidas ({broadcasts.length})
+                {tFormat(dict.donoAnuncios.publishedHeading, {
+                  count: broadcasts.length,
+                })}
               </h3>
             </div>
 
             {broadcasts.length === 0 ? (
               <p className="text-xs text-slate-400 py-8 text-center">
-                Ainda não definiste nenhum anúncio ou notificação.
+                {dict.donoAnuncios.emptyPublished}
               </p>
             ) : (
               <div className="space-y-3">
@@ -614,7 +627,7 @@ export default function DonoAnunciosPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                            {item.kind} · {item.durationSeconds}s /{' '}
+                            {getKindShortLabel(item.kind)} · {item.durationSeconds}s /{' '}
                             {item.cooldownMinutes}min
                             {item.aiGenerated ? ' · IA' : ''}
                           </span>
@@ -629,7 +642,7 @@ export default function DonoAnunciosPage() {
                               : 'bg-slate-700 text-slate-300'
                           }`}
                         >
-                          {item.active ? 'Ativo' : 'Pausado'}
+                          {item.active ? dict.common.active : dict.common.paused}
                         </span>
                       </div>
 
@@ -652,7 +665,7 @@ export default function DonoAnunciosPage() {
                             className="px-3 py-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                           >
                             <Maximize2 className="w-3.5 h-3.5" />
-                            Tela Cheia
+                            {dict.ads.fullscreenBtn}
                           </button>
                         )}
                         <button
@@ -661,7 +674,9 @@ export default function DonoAnunciosPage() {
                           className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Eye className="w-3.5 h-3.5" />
-                          Testar {item.durationSeconds}s
+                          {tFormat(dict.donoAnuncios.testSeconds, {
+                            sec: item.durationSeconds,
+                          })}
                         </button>
                         <button
                           type="button"
@@ -676,12 +691,12 @@ export default function DonoAnunciosPage() {
                           {item.active ? (
                             <>
                               <PauseCircle className="w-3.5 h-3.5" />
-                              Pausar
+                              {dict.donoAnuncios.pauseAction}
                             </>
                           ) : (
                             <>
                               <PlayCircle className="w-3.5 h-3.5" />
-                              Ativar
+                              {dict.donoAnuncios.activateAction}
                             </>
                           )}
                         </button>
@@ -691,7 +706,7 @@ export default function DonoAnunciosPage() {
                           className="px-3 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/35 text-red-300 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          Apagar
+                          {dict.donoAnuncios.deleteAction}
                         </button>
                       </div>
                     </div>

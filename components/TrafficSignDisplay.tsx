@@ -2,6 +2,8 @@
 
 import React from 'react';
 import { SignType } from '@/lib/types';
+import { useLanguage } from '@/components/LanguageProvider';
+import { translateSignLabel } from '@/lib/i18n';
 
 interface TrafficSignDisplayProps {
   signType: SignType | string;
@@ -31,6 +33,7 @@ export function TrafficSignDisplay({
   signType,
   size = 'lg',
 }: TrafficSignDisplayProps) {
+  const { language } = useLanguage();
   if (!signType || signType === 'none') return null;
 
   const dims =
@@ -283,7 +286,7 @@ export function TrafficSignDisplay({
     <div
       className={`${dims} bg-white shadow-xl flex items-center justify-center shrink-0 mx-auto border-2 border-slate-200`}
       role="img"
-      aria-label={SIGN_LABELS[signType] || 'Sinal de trânsito'}
+      aria-label={translateSignLabel(language, signType)}
     >
       {renderGraphic()}
     </div>

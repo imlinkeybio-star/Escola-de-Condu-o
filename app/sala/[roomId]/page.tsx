@@ -3,6 +3,7 @@
 import React, { use } from 'react';
 import { AppShell } from '@/components/AppShell';
 import { LiveCompetitionArena } from '@/components/LiveCompetitionArena';
+import { useLanguage } from '@/components/LanguageProvider';
 
 export default function SalaPage({
   params,
@@ -10,8 +11,9 @@ export default function SalaPage({
   params: Promise<{ roomId: string }>;
 }) {
   const { roomId } = use(params);
+  const { dict } = useLanguage();
   return (
-    <AppShell title="Sala ao Vivo" hideBottomNav>
+    <AppShell title={dict.arena.shellTitle} hideBottomNav>
       <LiveCompetitionArena roomId={roomId} />
     </AppShell>
   );

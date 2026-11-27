@@ -1,4 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  LanguageCode,
+  LANGUAGE_META_MAP,
+  normalizeLanguageCode,
+} from '@/lib/i18n/types';
 
 function getAIClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -81,30 +86,35 @@ export async function generateAngolaDrivingQuestions(params: {
   category: string;
   roomTitle: string;
   playerSeed?: string;
+  language?: LanguageCode;
 }): Promise<GeneratedQuestionRaw[]> {
   const ai = getAIClient();
   const count = Math.min(Math.max(params.count, 1), 25);
   const seed = params.playerSeed || `${Date.now()}_${Math.random()}`;
   const selectedThemes = shufflePickThemes(seed);
+  const langCode = normalizeLanguageCode(params.language);
+  const langMeta = LANGUAGE_META_MAP[langCode];
 
-  const systemInstruction = `És uma examinadora oficial de condução em Angola para a plataforma ESCOLA DE CONDUÇÃO LIVE.
-Gera exatamente ${count} perguntas inéditas e aleatórias de exame teórico de condução em português utilizado em Angola (português claro, formal e educativo, ex: "peões", "passadeira", "rotunda", "carta de condução", "Código de Estrada").
+  const systemInstruction = `You are an official driving examiner in Angola for the platform ESCOLA DE CONDUÇÃO LIVE.
+Generate exactly ${count} original and randomized driving theory exam questions written STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}).
+Every visible text field ("questionText", all 4 "options", "explanation", "legalReference", and "category") MUST be written naturally, clearly, and accurately in ${langMeta.aiLanguageName}.
 
-REGRAS RIGOROSAS DE VERACIDADE LEGAL (ANGOLA):
-1. Baseia-te exclusivamente na legislação rodoviária e no Código de Estrada de Angola (Decreto-Lei n.º 5/08, Regulamento de Sinalização de Trânsito e normas da DTSER / Viação e Trânsito) e na Convenção de Viena aplicável em Angola.
-2. NUNCA inventes números de artigos específicos, valores exatos de coimas em Kwanzas ou prazos numéricos se não tiveres 100% de certeza. Quando explicares regras legais, refere o princípio ou diploma aplicável do Código de Estrada de Angola (ex: "Código de Estrada de Angola (Decreto-Lei n.º 5/08) — Regras de Prioridade").
-3. Cada pergunta deve ter exatamente 4 opções totalmente distintas, realistas e sem prefixos (A/B/C/D), apenas 1 resposta inequívoca e correta, e uma explicação pedagógica completa.
-4. Para o campo "signType", escolhe o sinal mais adequado desta lista exata: ${VALID_SIGN_TYPES.join(', ')}. Usa um sinal específico sempre que a pergunta envolver sinalização ou manobra associada, ou "none" para perguntas puramente teóricas (documentação, primeiros socorros, mecânica).
-5. Se usares um sinal de trânsito específico, garante que o enunciado e a resposta correta correspondem fielmente ao significado desse sinal em Angola.
-6. Garante máxima variedade e originalidade em relação a outras sessões (usa cenários práticos variados em Angola: vias urbanas, rotundas, estradas nacionais, chuva, condução noturna).`;
+STRICT LEGAL ACCURACY RULES (ANGOLA HIGHWAY CODE):
+1. Base all legal facts exclusively on Angolan road traffic legislation and the Angola Highway Code (Decreto-Lei n.º 5/08, Traffic Signs Regulation, DTSER / Viação e Trânsito rules, and the Vienna Convention applicable in Angola).
+2. NEVER invent exact article numbers, fine amounts in Kwanzas, or numerical thresholds unless 100% certain. Cite the applicable principle or statute in ${langMeta.aiLanguageName} (referencing Decree-Law No. 5/08 / Angola Highway Code appropriately).
+3. Each question must have exactly 4 completely distinct, realistic options without prefixes (no A/B/C/D), exactly 1 unambiguous correct answer, and a complete educational explanation.
+4. For the "signType" field, choose the exact identifier from this canonical list (do NOT translate signType): ${VALID_SIGN_TYPES.join(', ')}. Use a specific sign whenever the question involves traffic signage or a related maneuver, or "none" for purely theoretical questions.
+5. Whenever using a specific traffic sign, make sure the question and correct answer match its exact official meaning in Angola.
+6. Maximize variety across sessions (urban roads, roundabouts, national highways, rain, night driving in Angola).`;
 
-  const prompt = `Sessão aleatória única: ${seed}.
-Cria ${count} perguntas novas e variadas para a sala "${params.roomTitle}".
-Nível de dificuldade: ${params.difficulty}.
-Categoria principal solicitada: ${params.category}.
-Subtemas prioritários para esta ronda aleatória:
+  const prompt = `Unique random session: ${seed}.
+Target output language: ${langMeta.aiLanguageName} (${langMeta.bcp47}).
+Create ${count} fresh and varied questions for room "${params.roomTitle}".
+Difficulty level: ${params.difficulty}.
+Primary requested category: ${params.category}.
+Priority subtopics for this random round:
 - ${selectedThemes.join('\n- ')}
-Se a categoria solicitada for específica (diferente de "Geral"), foca a maioria das perguntas nessa categoria mantendo cenários originais e distintos.`;
+If a specific category is requested (other than general/Geral), focus most questions on that topic while keeping original scenarios.`;
 
   const schema = {
     type: Type.ARRAY,
@@ -113,33 +123,32 @@ Se a categoria solicitada for específica (diferente de "Geral"), foca a maioria
       properties: {
         questionText: {
           type: Type.STRING,
-          description: 'Enunciado claro da pergunta em português de Angola.',
+          description: `Clear question prompt written in ${langMeta.aiLanguageName}.`,
         },
         options: {
           type: Type.ARRAY,
           items: { type: Type.STRING },
-          description: 'Exatamente 4 opções de resposta curtas, distintas e reais.',
+          description: `Exactly 4 short, distinct, realistic answer choices in ${langMeta.aiLanguageName}.`,
         },
         correctIndex: {
           type: Type.INTEGER,
-          description: 'Índice da resposta correta (0, 1, 2 ou 3).',
+          description: 'Zero-based index of the correct answer (0, 1, 2, or 3).',
         },
         explanation: {
           type: Type.STRING,
-          description: 'Explicação educativa clara baseada no Código de Estrada de Angola.',
+          description: `Clear educational explanation based on Angola Highway Code in ${langMeta.aiLanguageName}.`,
         },
         legalReference: {
           type: Type.STRING,
-          description:
-            'Referência legal verificável em Angola (ex: Código de Estrada de Angola — Decreto-Lei n.º 5/08, Prioridade).',
+          description: `Verifiable Angolan legal reference written in ${langMeta.aiLanguageName}.`,
         },
         category: {
           type: Type.STRING,
-          description: 'Categoria temática da pergunta.',
+          description: `Thematic category label in ${langMeta.aiLanguageName}.`,
         },
         signType: {
           type: Type.STRING,
-          description: `Identificador do sinal visual da lista permitida: ${VALID_SIGN_TYPES.join(', ')}`,
+          description: `Canonical visual sign ID from the allowed list: ${VALID_SIGN_TYPES.join(', ')}`,
         },
       },
       required: [
@@ -160,7 +169,7 @@ Se a categoria solicitada for específica (diferente de "Geral"), foca a maioria
       contents:
         attempt === 0
           ? prompt
-          : `${prompt}\nATENÇÃO: Garante exatamente ${count} objetos completos com 4 opções distintas não vazias e explicação detalhada.`,
+          : `${prompt}\nIMPORTANT: Return exactly ${count} complete items in ${langMeta.aiLanguageName} with 4 distinct non-empty options and full explanation.`,
       config: {
         systemInstruction,
         temperature: 1.0,
@@ -201,11 +210,11 @@ Se a categoria solicitada for específica (diferente de "Geral"), foca a maioria
           : -1;
 
       if (
-        questionText.length < 10 ||
+        questionText.length < 4 ||
         uniqueOpts.length < 4 ||
         correctIndex < 0 ||
-        explanation.length < 10 ||
-        legalReference.length < 4
+        explanation.length < 6 ||
+        legalReference.length < 3
       ) {
         continue;
       }
@@ -246,59 +255,66 @@ export async function generateCompetitionSummary(params: {
   participantCount: number;
   totalQuestions: number;
   topTopics: string[];
+  language?: LanguageCode;
 }): Promise<string> {
   const ai = getAIClient();
+  const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(params.language)];
   const response = await ai.models.generateContent({
     model: 'gemini-4-hydrogen',
-    contents: `Cria um resumo final motivador e educativo (máximo 90 palavras) em português de Angola para a competição "${params.roomTitle}".
-Vencedor: ${params.winnerName} com ${params.winnerScore} pontos.
-Total de participantes: ${params.participantCount}. Total de perguntas: ${params.totalQuestions}.
-Temas abordados: ${params.topTopics.join(', ')}.
-Dá os parabéns ao pódio e reforça uma mensagem prática de segurança rodoviária em Angola.`,
+    contents: `Create a motivating and educational final summary (max 90 words) written strictly in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving quiz competition "${params.roomTitle}".
+Winner: ${params.winnerName} with ${params.winnerScore} points.
+Participants: ${params.participantCount}. Total questions: ${params.totalQuestions}.
+Topics covered: ${params.topTopics.join(', ')}.
+Congratulate the podium and reinforce a practical road safety message for Angola.`,
   });
   return (
     response.text?.trim() ||
-    `Parabéns a ${params.winnerName} pela vitória com ${params.winnerScore} pontos! Continuem a praticar o Código de Estrada para estradas mais seguras em Angola.`
+    `${params.winnerName} (${params.winnerScore} pts) — ${params.roomTitle}`
   ).slice(0, 1800);
 }
 
-export async function askVirtualExaminer(question: string): Promise<string> {
+export async function askVirtualExaminer(
+  question: string,
+  language: LanguageCode = 'pt'
+): Promise<string> {
   const ai = getAIClient();
+  const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(language)];
   const response = await ai.models.generateContent({
     model: 'gemini-4-hydrogen',
     contents: question,
     config: {
-      systemInstruction: `És a Examinadora Virtual da Escola de Condução Live em Angola.
-Responde às dúvidas dos alunos sobre o Código de Estrada de Angola, sinalização rodoviária, prioridades, condução defensiva e preparação para o exame teórico.
-Regras:
-- Responde em português de Angola, de forma clara, estruturada e pedagógica (máximo 200 palavras).
-- Nunca inventes números exatos de artigos legais ou valores de coimas sem certeza verificável; quando não houver confirmação exata, explica a regra prática e recomenda consulta do exemplar oficial do Código de Estrada de Angola.`,
+      systemInstruction: `You are the Virtual Driving Examiner of Escola de Condução Live in Angola.
+Answer students' questions about the Angola Highway Code, road signage, right-of-way priorities, defensive driving, and official exam preparation.
+Rules:
+- Respond STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}), clearly, structured, and pedagogically (maximum 200 words).
+- Never invent exact article numbers or fine amounts unless verifiably certain; otherwise explain the practical official rule under the Angola Highway Code (Decree-Law No. 5/08).`,
     },
   });
   return (
     response.text?.trim() ||
-    'Não foi possível processar a dúvida neste momento. Tenta reformular a pergunta.'
+    'Could not process the question right now. Please try rephrasing.'
   );
 }
 
 export async function generateAiBroadcastContent(params: {
   kind: string;
   topic: string;
+  language?: LanguageCode;
 }): Promise<{ title: string; body: string; suggestedLinkLabel: string }> {
   const ai = getAIClient();
+  const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(params.language)];
   const response = await ai.models.generateContent({
     model: 'gemini-4-hydrogen',
-    contents: `Cria uma comunicação em português de Angola para a plataforma Escola de Condução Live.
-Tipo de comunicação: ${params.kind}
-Tema / objetivo definido pelo dono da app: ${params.topic}
+    contents: `Create an announcement/ad STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving school quiz platform Escola de Condução Live (Angola).
+Communication type: ${params.kind}
+Topic / goal defined by the app owner: ${params.topic}
 
-Regras:
-- Título curto, claro e atrativo (máximo 80 caracteres).
-- Corpo informativo e persuasivo adequado a alunos de condução em Angola (máximo 240 caracteres).
-- Sugestão de texto curto para botão de link clicável (máximo 28 caracteres, ex: "Participar Agora", "Saber Mais").`,
+Rules:
+- Short, clear, engaging title in ${langMeta.aiLanguageName} (max 80 characters).
+- Informative and persuasive body suitable for driving students in Angola in ${langMeta.aiLanguageName} (max 240 characters).
+- Short clickable button label in ${langMeta.aiLanguageName} (max 28 characters).`,
     config: {
-      systemInstruction:
-        'És o redator oficial e assistente de comunicação da Escola de Condução Live em Angola. Escreve em português claro e envolvente.',
+      systemInstruction: `You are the official copywriter for Escola de Condução Live in Angola. Write clearly and engagingly in ${langMeta.aiLanguageName}.`,
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
@@ -323,22 +339,27 @@ Regras:
   return {
     title: parsed.title.trim().slice(0, 110),
     body: parsed.body.trim().slice(0, 500),
-    suggestedLinkLabel: (parsed.suggestedLinkLabel || 'Abrir Link').trim().slice(0, 40),
+    suggestedLinkLabel: (parsed.suggestedLinkLabel || 'Open').trim().slice(0, 40),
   };
 }
 
-// In-memory LRU cache for synthesized TTS WAV audio (max 80 entries)
+// In-memory LRU cache for synthesized TTS audio scoped by language (max 100 entries)
 const ttsCache = new Map<string, string>();
 
-export async function synthesizePortugueseSpeech(
-  text: string
+export async function synthesizeSpeech(
+  text: string,
+  language: LanguageCode = 'pt'
 ): Promise<{ audioBase64: string; mimeType: string; provider: string }> {
   const cleanText = text.trim().slice(0, 600);
   if (!cleanText) {
     throw new Error('Texto vazio para síntese de voz.');
   }
 
-  const cached = ttsCache.get(cleanText);
+  const langCode = normalizeLanguageCode(language);
+  const langMeta = LANGUAGE_META_MAP[langCode];
+  const cacheKey = `${langCode}::${cleanText}`;
+
+  const cached = ttsCache.get(cacheKey);
   if (cached) {
     return {
       audioBase64: cached,
@@ -350,7 +371,14 @@ export async function synthesizePortugueseSpeech(
   // 1. Prefer Google Cloud Text-to-Speech when GOOGLE_CLOUD_TTS_API_KEY is configured
   const cloudTtsKey = process.env.GOOGLE_CLOUD_TTS_API_KEY?.trim();
   if (cloudTtsKey) {
-    try {
+    const attemptCloudTts = async (withVoiceName: boolean) => {
+      const voicePayload: Record<string, string> = {
+        languageCode: langMeta.ttsLanguageCode,
+        ssmlGender: 'FEMALE',
+      };
+      if (withVoiceName && langMeta.ttsVoiceName) {
+        voicePayload.name = langMeta.ttsVoiceName;
+      }
       const res = await fetch(
         `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(cloudTtsKey)}`,
         {
@@ -358,28 +386,29 @@ export async function synthesizePortugueseSpeech(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             input: { text: cleanText },
-            voice: {
-              languageCode: 'pt-PT',
-              name: 'pt-PT-Wavenet-A',
-              ssmlGender: 'FEMALE',
-            },
+            voice: voicePayload,
             audioConfig: {
               audioEncoding: 'MP3',
-              speakingRate: 1.02,
+              speakingRate: 1.0,
             },
           }),
         }
       );
-      if (res.ok) {
-        const json = (await res.json()) as { audioContent?: string };
-        if (json.audioContent) {
-          cacheTts(cleanText, json.audioContent);
-          return {
-            audioBase64: json.audioContent,
-            mimeType: 'audio/mp3',
-            provider: 'google-cloud-tts',
-          };
-        }
+      if (!res.ok) return null;
+      const json = (await res.json()) as { audioContent?: string };
+      return json.audioContent ?? null;
+    };
+
+    try {
+      const audioContent =
+        (await attemptCloudTts(true)) || (await attemptCloudTts(false));
+      if (audioContent) {
+        cacheTts(cacheKey, audioContent);
+        return {
+          audioBase64: audioContent,
+          mimeType: 'audio/mp3',
+          provider: 'google-cloud-tts',
+        };
       }
     } catch (err) {
       console.warn('Cloud TTS falhou, a usar Gemini TTS:', err);
@@ -397,8 +426,7 @@ export async function synthesizePortugueseSpeech(
           {
             text: cleanText,
             speechMetadata: {
-              style:
-                'Examinadora de condução em Angola, voz feminina clara, profissional e acolhedora em português',
+              style: `Official driving school examiner, clear, professional, warm female voice speaking natively in ${langMeta.aiLanguageName}`,
             },
           },
         ],
@@ -420,7 +448,7 @@ export async function synthesizePortugueseSpeech(
     throw new Error('Não foi possível gerar o áudio da examinadora virtual.');
   }
 
-  cacheTts(cleanText, base64Audio);
+  cacheTts(cacheKey, base64Audio);
   return {
     audioBase64: base64Audio,
     mimeType: 'audio/wav',
@@ -428,8 +456,12 @@ export async function synthesizePortugueseSpeech(
   };
 }
 
+export async function synthesizePortugueseSpeech(text: string) {
+  return synthesizeSpeech(text, 'pt');
+}
+
 function cacheTts(key: string, value: string) {
-  if (ttsCache.size >= 80) {
+  if (ttsCache.size >= 100) {
     const firstKey = ttsCache.keys().next().value;
     if (firstKey) ttsCache.delete(firstKey);
   }

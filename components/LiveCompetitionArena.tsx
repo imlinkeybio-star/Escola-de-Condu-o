@@ -52,40 +52,50 @@ import {
   submitPlayerAnswer,
 } from '@/lib/firestore-service';
 import { useAuth } from './AuthProvider';
+import { useLanguage } from './LanguageProvider';
 import { useVoiceExaminer } from '@/hooks/useVoiceExaminer';
 import { TrafficSignDisplay } from './TrafficSignDisplay';
+import {
+  formatNumberLocale,
+  tFormat,
+  translateCategory,
+  translateDifficulty,
+} from '@/lib/i18n';
 import examinerImg from '@/src/assets/images/virtual_examiner_angola_1795615139196.jpg';
 import trophyImg from '@/src/assets/images/trophy_gold_emblem_1795615139789.jpg';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
 
-function getParticipantStatusLabel(status?: ParticipantStatus): {
-  label: string;
-  className: string;
-} {
-  switch (status) {
-    case 'FINISHED':
-      return {
-        label: 'Concluiu',
-        className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-      };
-    case 'PLAYING':
-    case 'ANSWER_REVEAL':
-      return {
-        label: 'A jogar',
-        className: 'bg-red-500/15 text-red-300 border-red-500/30',
-      };
-    default:
-      return {
-        label: 'Em espera',
-        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-      };
-  }
-}
-
 export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   const { user, profile, privateInfo } = useAuth();
+  const { language, dict } = useLanguage();
+
+  const getParticipantStatusLabel = (
+    status?: ParticipantStatus
+  ): {
+    label: string;
+    className: string;
+  } => {
+    switch (status) {
+      case 'FINISHED':
+        return {
+          label: dict.arena.statusFinished,
+          className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+        };
+      case 'PLAYING':
+      case 'ANSWER_REVEAL':
+        return {
+          label: dict.arena.statusPlaying,
+          className: 'bg-red-500/15 text-red-300 border-red-500/30',
+        };
+      default:
+        return {
+          label: dict.arena.statusWaiting,
+          className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+        };
+    }
+  };
   const [room, setRoom] = useState<CompetitionRoom | null>(null);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
   const [currentQuestionState, setCurrentQuestionState] =
@@ -135,9 +145,9 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (!user || !profile || !roomId) return;
     void joinCompetitionRoom(roomId, profile).catch((err) => {
-      setErrorMsg(err instanceof Error ? err.message : 'Erro ao entrar na sala.');
+      setErrorMsg(err instanceof Error ? err.message : dict.arena.joinError);
     });
-  }, [user, profile, roomId]);
+  }, [user, profile, roomId, dict.arena.joinError]);
 
   useEffect(() => {
     if (!user || !roomId) return;
@@ -145,7 +155,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       doc(db, 'rooms', roomId),
       (snap) => {
         if (!snap.exists()) {
-          setErrorMsg('Sala de competição não encontrada.');
+          setErrorMsg(dict.arena.roomNotFound);
           return;
         }
         setRoom(snap.data() as CompetitionRoom);
@@ -153,7 +163,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       (err) => handleFirestoreError(err, OperationType.GET, `rooms/${roomId}`)
     );
     return () => unsub();
-  }, [user, roomId]);
+  }, [user, roomId, dict.arena.roomNotFound]);
 
   useEffect(() => {
     if (!user || !roomId) return;
@@ -322,9 +332,17 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     if (spokenQuestionRef.current === key) return;
     spokenQuestionRef.current = key;
 
-    const narration = `Pergunta ${currentQuestion.questionIndex + 1} de ${room.totalQuestions}. ${currentQuestion.questionText}. Opção A: ${currentQuestion.options[0]}. Opção B: ${currentQuestion.options[1]}. Opção C: ${currentQuestion.options[2]}. Opção D: ${currentQuestion.options[3]}.`;
+    const narration = tFormat(dict.arena.speechQuestion, {
+      idx: currentQuestion.questionIndex + 1,
+      total: room.totalQuestions,
+      text: currentQuestion.questionText,
+      a: currentQuestion.options[0],
+      b: currentQuestion.options[1],
+      c: currentQuestion.options[2],
+      d: currentQuestion.options[3],
+    });
     void speak(narration);
-  }, [myStatus, isRoomClosed, room, currentQuestion, speak]);
+  }, [myStatus, isRoomClosed, room, currentQuestion, speak, dict.arena.speechQuestion]);
 
   // Voice Examiner narration on answer reveal
   useEffect(() => {
@@ -343,9 +361,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
 
     const correctLetter = OPTION_LETTERS[revealed.correctIndex] || 'A';
     const correctText = currentQuestion.options[revealed.correctIndex] || '';
-    const narration = `A resposta correta é a opção ${correctLetter}: ${correctText}. ${revealed.explanation}`;
+    const narration = tFormat(dict.arena.speechReveal, {
+      letter: correctLetter,
+      text: correctText,
+      explanation: revealed.explanation,
+    });
     void speak(narration);
-  }, [myStatus, isRoomClosed, room, revealed, currentQuestion, speak]);
+  }, [myStatus, isRoomClosed, room, revealed, currentQuestion, speak, dict.arena.speechReveal]);
 
   // Advance to next question or finish ONLY for this player
   const handleAdvanceRound = useCallback(async () => {
@@ -368,12 +390,12 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : 'Erro ao avançar na competição.'
+          : dict.arena.advanceError
       );
     } finally {
       setAdvancing(false);
     }
-  }, [room, profile, myParticipant, advancing, qIndex]);
+  }, [room, profile, myParticipant, advancing, qIndex, dict.arena.advanceError]);
 
   // 8-second auto-advance countdown during ANSWER_REVEAL
   useEffect(() => {
@@ -402,7 +424,11 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     if (myStatus === 'FINISHED' && !spokenFinishRef.current && myParticipant) {
       spokenFinishRef.current = true;
       void speak(
-        `Parabéns ${myParticipant.displayName}! Concluíste a prova com ${myParticipant.score} pontos e ${myParticipant.correctCount} respostas certas. Acompanha o ranking ao vivo!`
+        tFormat(dict.arena.speechFinish, {
+          name: myParticipant.displayName,
+          score: myParticipant.score,
+          correct: myParticipant.correctCount,
+        })
       );
     }
 
@@ -455,7 +481,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     };
 
     void loadMyReview();
-  }, [room, user, myStatus, isRoomClosed, myParticipant, speak]);
+  }, [room, user, myStatus, isRoomClosed, myParticipant, speak, dict.arena.speechFinish]);
 
   const handleStartMyGame = async () => {
     if (!room || starting || isRoomClosed) return;
@@ -469,7 +495,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : 'Erro ao gerar perguntas com a IA e iniciar jogo.'
+          : dict.arena.startError
       );
     } finally {
       setStarting(false);
@@ -505,7 +531,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : 'Não foi possível registar a resposta.'
+          : dict.arena.submitError
       );
     } finally {
       setSubmitting(false);
@@ -522,7 +548,14 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
 
   const repeatCurrentQuestion = () => {
     if (!currentQuestion || !room) return;
-    const narration = `Pergunta ${currentQuestion.questionIndex + 1}. ${currentQuestion.questionText}. Opção A: ${currentQuestion.options[0]}. Opção B: ${currentQuestion.options[1]}. Opção C: ${currentQuestion.options[2]}. Opção D: ${currentQuestion.options[3]}.`;
+    const narration = tFormat(dict.arena.speechRepeat, {
+      idx: currentQuestion.questionIndex + 1,
+      text: currentQuestion.questionText,
+      a: currentQuestion.options[0],
+      b: currentQuestion.options[1],
+      c: currentQuestion.options[2],
+      d: currentQuestion.options[3],
+    });
     void speak(narration, true);
   };
 
@@ -530,17 +563,16 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     return (
       <div className="bg-[#111520] border border-white/10 rounded-2xl p-8 text-center space-y-4">
         <h2 className="text-xl font-bold text-white">
-          Inicia sessão para entrar na competição ao vivo
+          {dict.arena.loginTitle}
         </h2>
         <p className="text-sm text-slate-400">
-          Precisas de uma conta ativa para receber as tuas perguntas geradas em
-          tempo real pela IA e pontuar no ranking.
+          {dict.arena.loginDesc}
         </p>
         <Link
           href={`/entrar?next=/sala/${roomId}`}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition-colors"
         >
-          Entrar na Plataforma
+          {dict.arena.loginBtn}
         </Link>
       </div>
     );
@@ -550,14 +582,14 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
     return (
       <div className="bg-[#111520] border border-red-500/30 rounded-2xl p-8 text-center space-y-4">
         <XCircle className="w-10 h-10 text-red-500 mx-auto" />
-        <h2 className="text-xl font-bold text-white">Sala Indisponível</h2>
+        <h2 className="text-xl font-bold text-white">{dict.arena.unavailableTitle}</h2>
         <p className="text-sm text-slate-400">{errorMsg}</p>
         <Link
           href="/salas"
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-medium"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Voltar às Salas
+          <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+          {dict.arena.backToRooms}
         </Link>
       </div>
     );
@@ -588,23 +620,25 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
             href="/salas"
             className="min-w-[40px] min-h-[40px] rounded-xl bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center text-slate-300 shrink-0"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
           </Link>
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
               {isRoomClosed ? (
                 <span className="inline-flex items-center gap-1.5 font-bold text-slate-300 tabular-nums">
                   <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  RANKING ENCERRADO ({finishedCount}/100)
+                  {tFormat(dict.arena.rankingClosed, { count: finishedCount })}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 font-bold text-emerald-400 tabular-nums">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  RANKING EM DIRECTO ({finishedCount}/100 finalistas)
+                  {tFormat(dict.arena.rankingLive, { count: finishedCount })}
                 </span>
               )}
               <span aria-hidden="true">·</span>
-              <span className="font-mono-tabular">Código {room.code}</span>
+              <span className="font-mono-tabular">
+                {tFormat(dict.arena.codeLabel, { code: room.code })}
+              </span>
             </div>
             <h2 className="text-base sm:text-lg font-bold text-white truncate">
               {room.title}
@@ -615,7 +649,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={toggleVoice}
-            aria-label={voiceEnabled ? 'Desativar voz' : 'Ativar voz'}
+            aria-label={voiceEnabled ? dict.arena.muteVoice : dict.arena.unmuteVoice}
             className={`min-h-[40px] px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
               voiceEnabled
                 ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
@@ -628,7 +662,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               <VolumeX className="w-4 h-4" />
             )}
             <span className="hidden sm:inline">
-              {voiceEnabled ? 'Voz Ativa' : 'Voz Muda'}
+              {voiceEnabled ? dict.arena.voiceOn : dict.arena.voiceOff}
             </span>
           </button>
 
@@ -654,7 +688,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
             onClick={() => setErrorMsg(null)}
             className="text-xs underline cursor-pointer"
           >
-            Fechar
+            {dict.common.close}
           </button>
         </div>
       )}
@@ -670,7 +704,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                 <div className="relative w-20 h-20 mx-auto rounded-2xl overflow-hidden border border-amber-400/40">
                   <Image
                     src={trophyImg}
-                    alt="Resultados da Competição"
+                    alt={dict.arena.shellTitle}
                     fill
                     sizes="80px"
                     className="object-cover"
@@ -680,45 +714,47 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                 <div className="space-y-2">
                   <p className="text-xs font-bold uppercase tracking-widest text-amber-400 tabular-nums">
                     {isRoomClosed
-                      ? `Competição Encerrada · ${finishedCount}/100 Finalistas`
-                      : `A Tua Prova Terminou · ${finishedCount}/100 Finalistas`}
+                      ? tFormat(dict.arena.competitionClosed, { count: finishedCount })
+                      : tFormat(dict.arena.yourProofEnded, { count: finishedCount })}
                   </p>
                   <h3 className="font-display text-2xl sm:text-4xl font-extrabold text-white break-words">
                     {myStatus === 'FINISHED'
-                      ? `Obtiveste ${myParticipant?.score ?? 0} pontos!`
-                      : 'Ranking da Sala Encerrado'}
+                      ? tFormat(dict.arena.youScored, {
+                          score: formatNumberLocale(language, myParticipant?.score ?? 0),
+                        })
+                      : dict.arena.roomRankingClosed}
                   </h3>
                   <p className="text-sm text-slate-300 max-w-xl mx-auto">
                     {isRoomClosed
                       ? finishedCount >= 100
-                        ? '100 alunos já finalizaram o jogo nesta sala. O ranking oficial foi encerrado.'
-                        : `Esta sala foi encerrada com ${finishedCount}/100 finalistas registados.`
-                      : 'Esta sala fechou apenas para ti para consultares os teus resultados. Outros alunos podem continuar a jogar com novas perguntas aleatórias até completar 100 finalistas, e o ranking continua em direto.'}
+                        ? dict.arena.closed100Msg
+                        : tFormat(dict.arena.closedWithCountMsg, { count: finishedCount })
+                      : dict.arena.closedForYouMsg}
                   </p>
                 </div>
 
                 {myParticipant && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
                     <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
-                      <p className="text-xs text-slate-400">Pontuação</p>
+                      <p className="text-xs text-slate-400">{dict.arena.scoreLabel}</p>
                       <p className="font-mono-tabular text-2xl font-extrabold text-amber-400 mt-1">
-                        {myParticipant.score} pts
+                        {formatNumberLocale(language, myParticipant.score)} {dict.common.pts}
                       </p>
                     </div>
                     <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
-                      <p className="text-xs text-slate-400">Posição Atual</p>
+                      <p className="text-xs text-slate-400">{dict.arena.currentRankLabel}</p>
                       <p className="font-mono-tabular text-2xl font-extrabold text-white mt-1">
                         #{myRank > 0 ? myRank : '-'}
                       </p>
                     </div>
                     <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
-                      <p className="text-xs text-slate-400">Certas / Erradas</p>
+                      <p className="text-xs text-slate-400">{dict.arena.rightWrongLabel}</p>
                       <p className="font-mono-tabular text-2xl font-extrabold text-emerald-400 mt-1">
                         {myParticipant.correctCount}/{myParticipant.wrongCount}
                       </p>
                     </div>
                     <div className="p-4 rounded-xl bg-[#161B29] border border-white/[0.06]">
-                      <p className="text-xs text-slate-400">Precisão</p>
+                      <p className="text-xs text-slate-400">{dict.arena.accuracyLabel}</p>
                       <p className="font-mono-tabular text-2xl font-extrabold text-sky-400 mt-1">
                         {myAccuracy}%
                       </p>
@@ -741,13 +777,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                       >
                         <div className="flex items-center justify-center gap-1.5 text-xs font-bold">
                           <Crown className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{idx + 1}.º Lugar</span>
+                          <span>{tFormat(dict.arena.placeOrdinal, { n: idx + 1 })}</span>
                         </div>
                         <p className="text-sm font-bold text-white truncate">
                           {p.displayName}
                         </p>
                         <p className="font-mono-tabular text-base font-extrabold text-amber-400">
-                          {p.score} pts
+                          {formatNumberLocale(language, p.score)} {dict.common.pts}
                         </p>
                       </div>
                     ))}
@@ -759,13 +795,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                     href="/salas"
                     className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
                   >
-                    Explorar Outras Salas
+                    {dict.arena.exploreOtherRooms}
                   </Link>
                   <Link
                     href="/ranking"
                     className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
                   >
-                    Ver Ranking Geral
+                    {dict.arena.viewGlobalRanking}
                   </Link>
                 </div>
               </div>
@@ -773,7 +809,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               {allQuestions.length > 0 && (
                 <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-4">
                   <h4 className="text-lg font-bold text-white">
-                    Revisão das Tuas Perguntas (Código de Estrada de Angola)
+                    {dict.arena.reviewHeading}
                   </h4>
                   <div className="space-y-3">
                     {allQuestions.map((q) => {
@@ -796,14 +832,14 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                                   ok ? 'text-emerald-400' : 'text-red-400'
                                 }`}
                               >
-                                {ok ? 'Acertou' : 'Errou'}
+                                {ok ? dict.arena.correctTag : dict.arena.wrongTag}
                               </span>
                             )}
                           </div>
                           {rev && (
                             <>
                               <p className="text-xs text-emerald-300">
-                                Correta: {OPTION_LETTERS[rev.correctIndex]}.{' '}
+                                {dict.arena.officialCorrectPrefix} {OPTION_LETTERS[rev.correctIndex]}.{' '}
                                 {q.options[rev.correctIndex]}
                               </p>
                               <p className="text-xs text-slate-300">
@@ -831,7 +867,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   <div className="relative w-20 h-20 rounded-2xl overflow-hidden border border-amber-500/30 shrink-0 bg-black">
                     <Image
                       src={trophyImg}
-                      alt="Troféu Concurso"
+                      alt={dict.arena.shellTitle}
                       fill
                       sizes="80px"
                       className="object-cover"
@@ -839,39 +875,41 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   </div>
                   <div className="flex-1 space-y-1.5">
                     <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-                      Concurso ao Vivo · {room.difficulty} · {room.category}
+                      {tFormat(dict.arena.waitingSubtitle, {
+                        diff: translateDifficulty(language, room.difficulty),
+                        cat: translateCategory(language, room.category),
+                      })}
                     </p>
                     <h3 className="font-display text-2xl sm:text-3xl font-bold text-white">
                       {room.title}
                     </h3>
                     <p className="text-sm text-slate-400">
-                      {room.description ||
-                        'Perguntas geradas 100% em tempo real pela IA segundo o Código de Estrada de Angola.'}
+                      {room.description || dict.salas.defaultRoomDesc}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-white/[0.08] text-center">
                   <div>
-                    <p className="text-xs text-slate-400">Perguntas IA</p>
+                    <p className="text-xs text-slate-400">{dict.arena.aiQuestionsLabel}</p>
                     <p className="font-display text-2xl font-bold text-white tabular-nums mt-0.5">
                       {room.totalQuestions}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Tempo/pergunta</p>
+                    <p className="text-xs text-slate-400">{dict.arena.timePerQLabel}</p>
                     <p className="font-display text-2xl font-bold text-white tabular-nums mt-0.5">
                       {room.timePerQuestion}s
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Pontos/acerto</p>
+                    <p className="text-xs text-slate-400">{dict.arena.pointsPerCorrectLabel}</p>
                     <p className="font-display text-2xl font-bold text-amber-400 tabular-nums mt-0.5">
                       +{room.pointsPerCorrect}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Finalistas</p>
+                    <p className="text-xs text-slate-400">{dict.arena.finalistsLabel}</p>
                     <p className="font-display text-2xl font-bold text-emerald-400 tabular-nums mt-0.5">
                       {finishedCount}/100
                     </p>
@@ -885,8 +923,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   <div className="flex items-center gap-2 text-sm font-semibold text-white">
                     <Users className="w-4 h-4 text-red-500" />
                     <span>
-                      Alunos na Sala ({participants.length} /{' '}
-                      {room.maxParticipants})
+                      {tFormat(dict.arena.studentsInRoom, {
+                        count: participants.length,
+                        max: room.maxParticipants,
+                      })}
                     </span>
                   </div>
                   <button
@@ -896,12 +936,12 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                     {copiedCode ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        Link Copiado
+                        {dict.arena.linkCopied}
                       </>
                     ) : (
                       <>
                         <Share2 className="w-3.5 h-3.5" />
-                        Convidar Colegas
+                        {dict.arena.invitePeers}
                       </>
                     )}
                   </button>
@@ -943,16 +983,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               <div className="bg-[#111520] border border-red-500/40 rounded-2xl p-6 text-center space-y-4">
                 <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400">
                   <Sparkles className="w-4 h-4" />
-                  Perguntas Aleatórias em Tempo Real (Código de Estrada de Angola)
+                  {dict.landing.angolaHighwayCode}
                 </div>
                 <h4 className="text-xl font-bold text-white">
-                  Estás pronto para começar o teu jogo?
+                  {dict.arena.readyHeading}
                 </h4>
                 <p className="text-sm text-slate-300 max-w-lg mx-auto">
-                  A sala aguarda que inicies a tua partida. Ao clicar em iniciar,
-                  a IA gera em tempo real {room.totalQuestions} perguntas únicas
-                  e aleatórias para ti, enquanto o ranking da sala continua em
-                  direto até 100 alunos finalizarem.
+                  {tFormat(dict.arena.readyDesc, { count: room.totalQuestions })}
                 </p>
                 <button
                   onClick={handleStartMyGame}
@@ -960,9 +997,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   className="w-full sm:w-auto min-h-[50px] px-8 py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Play className="w-4 h-4 fill-current" />
-                  {starting
-                    ? 'A IA está a gerar as tuas perguntas em tempo real...'
-                    : 'Iniciar o Meu Jogo Agora'}
+                  {starting ? dict.arena.generatingAiBtn : dict.arena.startMyGameBtn}
                 </button>
               </div>
             </div>
@@ -981,11 +1016,14 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               >
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span>
-                    Pergunta {currentQuestion.questionIndex + 1} de{' '}
-                    {room.totalQuestions} · {currentQuestion.category}
+                    {tFormat(dict.arena.qProgress, {
+                      current: currentQuestion.questionIndex + 1,
+                      total: room.totalQuestions,
+                      cat: translateCategory(language, currentQuestion.category),
+                    })}
                   </span>
                   <span className="font-mono-tabular text-amber-400">
-                    {finishedCount}/100 finalistas
+                    {tFormat(dict.arena.finalistsShort, { count: finishedCount })}
                   </span>
                 </div>
 
@@ -994,7 +1032,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                     <div className="relative w-16 h-20 sm:w-28 sm:h-36 rounded-xl overflow-hidden border border-white/10 shrink-0">
                       <Image
                         src={examinerImg}
-                        alt="Examinadora Virtual"
+                        alt={dict.arena.examinerAiLabel}
                         fill
                         sizes="(max-width: 640px) 64px, 112px"
                         className="object-cover"
@@ -1002,7 +1040,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                     </div>
                     <div className="sm:space-y-1">
                       <p className="text-xs font-semibold text-white">
-                        Examinadora IA
+                        {dict.arena.examinerAiLabel}
                       </p>
                       <button
                         onClick={repeatCurrentQuestion}
@@ -1010,7 +1048,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-medium cursor-pointer whitespace-nowrap mt-1"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        {isSpeaking ? 'A falar...' : 'Repetir Pergunta'}
+                        {isSpeaking ? dict.arena.speakingBtn : dict.arena.repeatQBtn}
                       </button>
                     </div>
                   </div>
@@ -1040,7 +1078,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                         key={idx}
                         onClick={() => handleSelectOption(idx)}
                         disabled={locked || submitting}
-                        className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default min-w-0 ${
+                        className={`w-full min-h-[56px] px-4 py-3.5 rounded-xl border text-start flex items-center gap-3.5 transition-all cursor-pointer disabled:cursor-default min-w-0 ${
                           isSelected
                             ? 'bg-red-600 border-red-400 text-white shadow-lg shadow-red-600/20'
                             : locked
@@ -1069,8 +1107,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   <span className="inline-flex items-center gap-1.5">
                     <Info className="w-3.5 h-3.5 text-sky-400" />
                     {myAnswer
-                      ? `Resposta (${OPTION_LETTERS[myAnswer.selectedIndex]}) registada! A validar pontuação...`
-                      : 'Escolhe a opção correta antes do fim do temporizador!'}
+                      ? tFormat(dict.arena.answerRecorded, {
+                          letter: OPTION_LETTERS[myAnswer.selectedIndex],
+                        })
+                      : dict.arena.chooseBeforeTimer}
                   </span>
                 </div>
               </motion.div>
@@ -1100,7 +1140,9 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                           <CheckCircle2 className="w-8 h-8" />
                         </div>
                         <h3 className="font-display text-3xl font-extrabold text-emerald-400">
-                          Resposta Correta! +{room.pointsPerCorrect} Pontos
+                          {tFormat(dict.arena.correctAnswerHeading, {
+                            pts: room.pointsPerCorrect,
+                          })}
                         </h3>
                       </>
                     ) : (
@@ -1110,13 +1152,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                         </div>
                         <h3 className="font-display text-3xl font-extrabold text-red-400">
                           {myAnswer
-                            ? 'Resposta Errada! 0 Pontos'
-                            : 'Tempo Esgotado! 0 Pontos'}
+                            ? dict.arena.wrongAnswerHeading
+                            : dict.arena.timeUpHeading}
                         </h3>
                       </>
                     )}
                     <p className="text-xs text-slate-300">
-                      Resposta oficial:{' '}
+                      {dict.arena.officialAnswerLabel}{' '}
                       <strong className="text-white">
                         {OPTION_LETTERS[revealed.correctIndex]}.{' '}
                         {currentQuestion.options[revealed.correctIndex]}
@@ -1134,19 +1176,24 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
 
                   <div className="bg-[#0B0E17]/90 border border-white/10 rounded-xl p-4 space-y-2">
                     <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                      Explicação da Examinadora IA
+                      {dict.arena.aiExplanationHeading}
                     </p>
                     <p className="text-sm text-slate-200 leading-relaxed">
                       {revealed.explanation}
                     </p>
                     <p className="text-xs text-slate-400 pt-1">
-                      Referência: {revealed.legalReference}
+                      {tFormat(dict.arena.legalRefLabel, {
+                        ref: revealed.legalReference,
+                      })}
                     </p>
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
                     <span className="text-xs text-slate-300 font-medium">
-                      Pergunta {qIndex + 1} de {room.totalQuestions} concluída
+                      {tFormat(dict.arena.qCompleted, {
+                        current: qIndex + 1,
+                        total: room.totalQuestions,
+                      })}
                     </span>
 
                     <button
@@ -1156,10 +1203,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                     >
                       <span>
                         {qIndex + 1 < room.totalQuestions
-                          ? `Próxima Pergunta (${revealCountdown}s)`
-                          : `Ver Meus Resultados (${revealCountdown}s)`}
+                          ? tFormat(dict.arena.nextQCountdown, { sec: revealCountdown })
+                          : tFormat(dict.arena.viewResultsCountdown, { sec: revealCountdown })}
                       </span>
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                     </button>
                   </div>
                 </motion.div>
@@ -1174,15 +1221,15 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               <div className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-amber-400" />
                 <h3 className="text-base font-bold text-white">
-                  Ranking da Sala
+                  {dict.arena.roomRankingHeading}
                 </h3>
               </div>
               <span className="text-xs text-amber-400 font-mono-tabular font-semibold">
-                {finishedCount}/100 finalistas
+                {tFormat(dict.arena.finalistsShort, { count: finishedCount })}
               </span>
             </div>
 
-            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[440px] overflow-y-auto pe-1">
               {participants.map((p, idx) => {
                 const isMe = p.uid === user.uid;
                 const st = getParticipantStatusLabel(p.status);
@@ -1229,7 +1276,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                       </div>
                     </div>
                     <span className="font-mono-tabular text-xs sm:text-sm font-bold text-amber-400 shrink-0">
-                      {p.score} pts
+                      {formatNumberLocale(language, p.score)} {dict.common.pts}
                     </span>
                   </div>
                 );
@@ -1239,13 +1286,13 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
             {myParticipant && (
               <div className="pt-3 border-t border-white/[0.08] flex items-center justify-between text-xs">
                 <div>
-                  <p className="text-slate-400">A tua pontuação</p>
+                  <p className="text-slate-400">{dict.arena.yourScoreLabel}</p>
                   <p className="text-base font-bold text-amber-400 font-mono-tabular">
-                    {myParticipant.score} pts
+                    {formatNumberLocale(language, myParticipant.score)} {dict.common.pts}
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-slate-400">Posição atual</p>
+                <div className="text-end">
+                  <p className="text-slate-400">{dict.arena.currentRankLabel}</p>
                   <p className="text-base font-bold text-white font-mono-tabular">
                     #{myRank > 0 ? myRank : '-'}
                   </p>
@@ -1257,10 +1304,10 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 space-y-2 text-xs text-slate-400">
             <div className="flex items-center gap-2 text-white font-semibold">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Regras da Sala em Tempo Real</span>
+              <span>{dict.arena.roomRulesHeading}</span>
             </div>
             <p>
-              Código da sala:{' '}
+              {dict.arena.roomCodeText}{' '}
               <button
                 onClick={handleCopyInvite}
                 className="font-mono-tabular font-bold text-white inline-flex items-center gap-1 hover:text-red-400 cursor-pointer"
@@ -1270,9 +1317,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
               </button>
             </p>
             <p>
-              Cada aluno recebe perguntas aleatórias geradas em tempo real pela
-              IA sobre o Código de Estrada de Angola. A sala fecha apenas para
-              quem termina e o ranking só encerra após 100 finalistas.
+              {dict.arena.roomRulesDesc}
             </p>
           </div>
         </aside>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { generateAngolaDrivingQuestions } from '@/lib/server/gemini';
 import { sealQuestionAnswer } from '@/lib/server/crypto';
+import { normalizeLanguageCode } from '@/lib/i18n/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
       difficulty?: string;
       category?: string;
       roomTitle?: string;
+      language?: string;
     };
 
     const roomId = typeof body.roomId === 'string' ? body.roomId.trim() : '';
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
       typeof body.roomTitle === 'string' && body.roomTitle.trim()
         ? body.roomTitle.trim().slice(0, 100)
         : 'Concurso Código de Estrada';
+    const language = normalizeLanguageCode(body.language);
 
     const playerSeed = `${roomId}_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
       category,
       roomTitle,
       playerSeed,
+      language,
     });
 
     const sealedQuestions = generated.map((q, questionIndex) => {

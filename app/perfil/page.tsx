@@ -20,6 +20,7 @@ import { updateProfile } from 'firebase/auth';
 import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import { AccountSecurityCard } from '@/components/AccountSecurityCard';
 import {
@@ -33,6 +34,12 @@ import {
   UserResult,
 } from '@/lib/types';
 import { updateUserProfileDetails } from '@/lib/firestore-service';
+import {
+  formatNumberLocale,
+  tFormat,
+  translateAchievement,
+  translateTier,
+} from '@/lib/i18n';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 function toMillis(ts: unknown): number {
@@ -48,10 +55,10 @@ function toMillis(ts: unknown): number {
 
 async function compressAvatarFile(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) {
-    throw new Error('Seleciona um ficheiro de imagem válido (JPG, PNG ou WebP).');
+    throw new Error('JPG / PNG / WebP only');
   }
   if (file.size > 8 * 1024 * 1024) {
-    throw new Error('A imagem original não pode exceder 8 MB.');
+    throw new Error('Max 8 MB');
   }
 
   const objectUrl = URL.createObjectURL(file);
@@ -59,7 +66,7 @@ async function compressAvatarFile(file: File): Promise<string> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new window.Image();
       el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
+      el.onerror = () => reject(new Error('Image load error'));
       el.src = objectUrl;
     });
 
@@ -68,7 +75,7 @@ async function compressAvatarFile(file: File): Promise<string> {
     canvas.width = targetSize;
     canvas.height = targetSize;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Navegador sem suporte a processamento de imagem.');
+    if (!ctx) throw new Error('Canvas unsupported');
 
     // Center-crop square
     const minSide = Math.min(img.width, img.height);
@@ -81,7 +88,7 @@ async function compressAvatarFile(file: File): Promise<string> {
       dataUrl = canvas.toDataURL('image/jpeg', 0.62);
     }
     if (dataUrl.length > 78000) {
-      throw new Error('Imagem demasiado detalhada. Tenta uma foto mais simples.');
+      throw new Error('Image too large');
     }
     return dataUrl;
   } finally {
@@ -89,20 +96,9 @@ async function compressAvatarFile(file: File): Promise<string> {
   }
 }
 
-const PRESET_AVATARS = [
-  { label: 'Logo Oficial', value: '/assets/aistudio/favicon_14076ff5.png' },
-  {
-    label: 'Condutor Estrada',
-    value: 'https://picsum.photos/seed/condutor-angola/200/200',
-  },
-  {
-    label: 'Luanda Noite',
-    value: 'https://picsum.photos/seed/luanda-drive/200/200',
-  },
-];
-
 export default function PerfilPage() {
   const { user, profile, privateInfo, refreshProfile } = useAuth();
+  const { dict, language } = useLanguage();
   const [tab, setTab] = useState<'desempenho' | 'conquistas' | 'seguranca'>(
     'desempenho'
   );
@@ -118,6 +114,21 @@ export default function PerfilPage() {
   const [saving, setSaving] = useState(false);
   const [achievements, setAchievements] = useState<AchievementRecord[]>([]);
   const [results, setResults] = useState<UserResult[]>([]);
+
+  const presetAvatars = [
+    {
+      label: dict.profile.presetDriver1,
+      value: '/assets/aistudio/favicon_14076ff5.png',
+    },
+    {
+      label: dict.profile.presetDriver2,
+      value: 'https://picsum.photos/seed/condutor-angola/200/200',
+    },
+    {
+      label: dict.profile.presetSignStop,
+      value: 'https://picsum.photos/seed/luanda-drive/200/200',
+    },
+  ];
 
   useEffect(() => {
     if (!user) return;
@@ -178,7 +189,9 @@ export default function PerfilPage() {
       setPhotoTouched(true);
     } catch (err) {
       setEditError(
-        err instanceof Error ? err.message : 'Erro ao carregar foto.'
+        err instanceof Error && err.message !== 'Image too large'
+          ? err.message
+          : dict.profile.photoError
       );
     } finally {
       setPhotoBusy(false);
@@ -223,12 +236,10 @@ export default function PerfilPage() {
 
       await refreshProfile();
       setEditing(false);
-      setEditSuccess('Perfil e foto atualizados com sucesso!');
+      setEditSuccess(dict.profile.updateSuccess);
     } catch (err) {
       setEditError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível guardar as alterações.'
+        err instanceof Error ? err.message : dict.profile.saveError
       );
     } finally {
       setSaving(false);
@@ -237,13 +248,13 @@ export default function PerfilPage() {
 
   if (!user || !profile) {
     return (
-      <AppShell title="Meu Perfil">
+      <AppShell title={dict.profile.shellTitle}>
         <div className="bg-[#111520] border border-white/10 rounded-2xl p-8 text-center">
           <Link
             href="/entrar"
             className="inline-block px-6 py-3 rounded-xl bg-red-600 text-white text-sm font-bold"
           >
-            Entrar para ver perfil
+            {dict.profile.guestBtn}
           </Link>
         </div>
       </AppShell>
@@ -270,14 +281,14 @@ export default function PerfilPage() {
     : profile.photoURL || defaultAvatarImg;
 
   return (
-    <AppShell title="Meu Perfil">
+    <AppShell title={dict.profile.shellTitle}>
       <div className="max-w-4xl mx-auto space-y-6 min-w-0">
         {/* Profile Header Card */}
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 text-center space-y-4 relative min-w-0">
           <Link
             href="/definicoes"
-            aria-label="Definições"
-            className="absolute top-4 right-4 min-w-[40px] min-h-[40px] rounded-xl bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center text-slate-300"
+            aria-label={dict.nav.definicoes}
+            className="absolute top-4 end-4 min-w-[40px] min-h-[40px] rounded-xl bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center text-slate-300"
           >
             <Settings className="w-4 h-4" />
           </Link>
@@ -296,8 +307,8 @@ export default function PerfilPage() {
             <button
               type="button"
               onClick={openEditor}
-              aria-label="Editar perfil e foto"
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center border-2 border-[#111520] cursor-pointer"
+              aria-label={dict.profile.editAria}
+              className="absolute bottom-0 end-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center border-2 border-[#111520] cursor-pointer"
             >
               <Camera className="w-3.5 h-3.5" />
             </button>
@@ -308,7 +319,8 @@ export default function PerfilPage() {
               {profile.displayName}
             </h2>
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400 mt-1">
-              {profile.tier} · {privateInfo?.province || 'Luanda'}
+              {translateTier(language, profile.tier)} ·{' '}
+              {privateInfo?.province || 'Luanda'}
             </p>
             {privateInfo?.drivingSchool && (
               <p className="text-xs text-slate-400 mt-0.5 break-words">
@@ -322,7 +334,7 @@ export default function PerfilPage() {
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-semibold text-slate-200 cursor-pointer"
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                {editing ? 'Fechar Edição' : 'Editar Foto & Dados'}
+                {editing ? dict.profile.closeEdit : dict.profile.editPhotoData}
               </button>
             </div>
           </div>
@@ -337,30 +349,36 @@ export default function PerfilPage() {
             <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Star className="w-4 h-4 text-amber-400 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
-                {profile.totalPoints}
+                {formatNumberLocale(language, profile.totalPoints)}
               </p>
-              <p className="text-[11px] text-slate-400 truncate">Pontos</p>
+              <p className="text-[11px] text-slate-400 truncate">
+                {dict.profile.pointsLabel}
+              </p>
             </div>
             <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Trophy className="w-4 h-4 text-amber-400 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
-                {profile.wins}
+                {formatNumberLocale(language, profile.wins)}
               </p>
-              <p className="text-[11px] text-slate-400 truncate">Vitórias</p>
+              <p className="text-[11px] text-slate-400 truncate">
+                {dict.profile.winsLabel}
+              </p>
             </div>
             <div className="p-3 rounded-xl bg-[#161B29] min-w-0">
               <Flame className="w-4 h-4 text-red-500 mx-auto" />
               <p className="font-mono-tabular text-lg font-bold text-white mt-1">
-                {profile.currentStreak}
+                {formatNumberLocale(language, profile.currentStreak)}
               </p>
-              <p className="text-[11px] text-slate-400 truncate">Sequência</p>
+              <p className="text-[11px] text-slate-400 truncate">
+                {dict.profile.streakLabel}
+              </p>
             </div>
           </div>
 
           {editing && (
             <form
               onSubmit={handleSave}
-              className="max-w-md mx-auto pt-4 border-t border-white/[0.08] space-y-4 text-left"
+              className="max-w-md mx-auto pt-4 border-t border-white/[0.08] space-y-4 text-start"
             >
               {editError && (
                 <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
@@ -371,13 +389,15 @@ export default function PerfilPage() {
               {/* Avatar Editor */}
               <div className="p-3.5 rounded-xl bg-[#090C14] border border-white/10 space-y-3">
                 <p className="text-xs font-bold text-white">
-                  Foto de Perfil (Picture)
+                  {dict.profile.photoSectionTitle}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="min-h-[38px] px-3.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white inline-flex items-center gap-2 cursor-pointer">
                     <Upload className="w-3.5 h-3.5 text-amber-400" />
-                    {photoBusy ? 'A processar...' : 'Carregar do Dispositivo'}
+                    {photoBusy
+                      ? dict.profile.processingPhoto
+                      : dict.profile.uploadDevice}
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
@@ -396,13 +416,13 @@ export default function PerfilPage() {
                       className="min-h-[38px] px-3 rounded-xl bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-200 inline-flex items-center gap-1.5 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      Remover Foto
+                      {dict.profile.removePhoto}
                     </button>
                   )}
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {PRESET_AVATARS.map((preset) => (
+                  {presetAvatars.map((preset) => (
                     <button
                       key={preset.value}
                       type="button"
@@ -423,7 +443,7 @@ export default function PerfilPage() {
 
                 <div>
                   <label className="text-[11px] text-slate-400">
-                    Ou link de imagem (https://...)
+                    {dict.profile.orImageUrl}
                   </label>
                   <input
                     type="text"
@@ -434,7 +454,7 @@ export default function PerfilPage() {
                     }}
                     placeholder={
                       photoDraft.startsWith('data:')
-                        ? 'Foto carregada do dispositivo pronta a guardar'
+                        ? dict.profile.photoReadyPlaceholder
                         : 'https://lh3.googleusercontent.com/...'
                     }
                     className="w-full min-h-[38px] px-3 rounded-xl bg-[#111520] border border-white/15 text-xs text-white mt-1"
@@ -443,7 +463,9 @@ export default function PerfilPage() {
               </div>
 
               <div>
-                <label className="text-xs text-slate-400">Nome</label>
+                <label className="text-xs text-slate-400">
+                  {dict.profile.nameLabel}
+                </label>
                 <input
                   type="text"
                   required
@@ -457,7 +479,7 @@ export default function PerfilPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-400">
-                    Escola de Condução
+                    {dict.profile.schoolLabel}
                   </label>
                   <input
                     type="text"
@@ -468,7 +490,9 @@ export default function PerfilPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400">Província</label>
+                  <label className="text-xs text-slate-400">
+                    {dict.profile.provinceLabel}
+                  </label>
                   <select
                     value={province}
                     onChange={(e) => setProvince(e.target.value)}
@@ -488,7 +512,7 @@ export default function PerfilPage() {
                 className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                {saving ? 'A guardar...' : 'Guardar Alterações'}
+                {saving ? dict.common.saving : dict.profile.saveChanges}
               </button>
             </form>
           )}
@@ -504,7 +528,7 @@ export default function PerfilPage() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Desempenho
+            {dict.profile.tabPerformance}
           </button>
           <button
             onClick={() => setTab('conquistas')}
@@ -514,7 +538,9 @@ export default function PerfilPage() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Conquistas ({achievements.length})
+            {tFormat(dict.profile.tabAchievements, {
+              count: achievements.length,
+            })}
           </button>
           <button
             onClick={() => setTab('seguranca')}
@@ -525,7 +551,7 @@ export default function PerfilPage() {
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
-            <span>Segurança</span>
+            <span>{dict.profile.tabSecurity}</span>
           </button>
         </div>
 
@@ -559,34 +585,45 @@ export default function PerfilPage() {
                     {accuracy}%
                   </span>
                   <span className="text-[10px] text-slate-400">
-                    Taxa de Acerto
+                    {dict.profile.overallAccuracy}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-5 sm:gap-6 text-center sm:text-left">
+              <div className="grid grid-cols-2 gap-5 sm:gap-6 text-center sm:text-start">
                 <div>
-                  <p className="text-xs text-slate-400">Total de Jogos</p>
+                  <p className="text-xs text-slate-400">
+                    {dict.history.competitionsCount}
+                  </p>
                   <p className="font-mono-tabular text-2xl font-bold text-white mt-0.5">
-                    {profile.gamesPlayed}
+                    {formatNumberLocale(language, profile.gamesPlayed)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Média de Pontos</p>
+                  <p className="text-xs text-slate-400">
+                    {dict.profile.avgPerGame}
+                  </p>
                   <p className="font-mono-tabular text-2xl font-bold text-amber-400 mt-0.5">
-                    {avgPoints} pts
+                    {avgPoints} {dict.common.pts}
+                  </p>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <p className="text-xs text-slate-400">
+                    {dict.dashboard.accuracyRate}
+                  </p>
+                  <p className="font-mono-tabular text-sm font-bold text-emerald-400 mt-1">
+                    {tFormat(dict.profile.answersSummary, {
+                      correct: profile.correctAnswers,
+                      total: profile.totalAnswers,
+                    })}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Respostas Certas</p>
-                  <p className="font-mono-tabular text-xl font-bold text-emerald-400 mt-0.5">
-                    {profile.correctAnswers}
+                  <p className="text-xs text-slate-400">
+                    {dict.profile.bestStreakCard}
                   </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Melhor Sequência</p>
                   <p className="font-mono-tabular text-xl font-bold text-red-400 mt-0.5">
-                    {profile.bestStreak}
+                    {formatNumberLocale(language, profile.bestStreak)}
                   </p>
                 </div>
               </div>
@@ -594,7 +631,7 @@ export default function PerfilPage() {
 
             <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-5 min-w-0">
               <h3 className="text-base font-bold text-white">
-                Progresso em Tempo Real
+                {dict.dashboard.livePerformance}
               </h3>
               <LiveAnswerBreakdownBar
                 correctAnswers={profile.correctAnswers}
@@ -607,6 +644,12 @@ export default function PerfilPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {ACHIEVEMENTS_CATALOG.map((ach) => {
               const unlocked = unlockedSet.has(ach.id);
+              const localized = translateAchievement(
+                language,
+                ach.id,
+                ach.title,
+                ach.description
+              );
               return (
                 <div
                   key={ach.id}
@@ -627,9 +670,11 @@ export default function PerfilPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-white truncate">
-                      {ach.title}
+                      {localized.title}
                     </p>
-                    <p className="text-xs text-slate-400">{ach.description}</p>
+                    <p className="text-xs text-slate-400">
+                      {localized.description}
+                    </p>
                   </div>
                 </div>
               );

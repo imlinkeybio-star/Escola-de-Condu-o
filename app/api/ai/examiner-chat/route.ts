@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { askVirtualExaminer } from '@/lib/server/gemini';
+import { normalizeLanguageCode } from '@/lib/i18n/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json()) as { question?: string };
+    const body = (await req.json()) as { question?: string; language?: string };
     const question =
       typeof body.question === 'string' ? body.question.trim().slice(0, 500) : '';
     if (question.length < 3) {
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const answer = await askVirtualExaminer(question);
+    const language = normalizeLanguageCode(body.language);
+    const answer = await askVirtualExaminer(question, language);
     return NextResponse.json({ answer });
   } catch (err) {
     console.error('Erro em /api/ai/examiner-chat:', err);

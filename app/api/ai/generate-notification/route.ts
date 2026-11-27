@@ -5,6 +5,7 @@ import {
 } from '@/lib/server/auth';
 import { generateAiBroadcastContent } from '@/lib/server/gemini';
 import { isAppOwnerEmail } from '@/lib/url-safety';
+import { normalizeLanguageCode } from '@/lib/i18n/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,10 +31,12 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       kind?: string;
       topic?: string;
+      language?: string;
     };
 
     const kind = typeof body.kind === 'string' ? body.kind.trim().slice(0, 40) : 'informative';
     const topic = typeof body.topic === 'string' ? body.topic.trim().slice(0, 300) : '';
+    const language = normalizeLanguageCode(body.language);
 
     if (topic.length < 3) {
       return NextResponse.json(
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const draft = await generateAiBroadcastContent({ kind, topic });
+    const draft = await generateAiBroadcastContent({ kind, topic, language });
     return NextResponse.json(draft);
   } catch (err) {
     console.error('Erro em /api/ai/generate-notification:', err);

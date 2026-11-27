@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { generateCompetitionSummary } from '@/lib/server/gemini';
+import { normalizeLanguageCode } from '@/lib/i18n/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
       participantCount?: number;
       totalQuestions?: number;
       topTopics?: string[];
+      language?: string;
     };
 
     const summary = await generateCompetitionSummary({
@@ -30,6 +32,7 @@ export async function POST(req: NextRequest) {
       topTopics: Array.isArray(body.topTopics)
         ? body.topTopics.slice(0, 6).map(String)
         : ['Código de Estrada'],
+      language: normalizeLanguageCode(body.language),
     });
 
     return NextResponse.json({ summary });

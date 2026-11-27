@@ -41,6 +41,7 @@ import {
   sanitizeAvatarPhotoUrl,
   sanitizeSafeUrl,
 } from './url-safety';
+import { getActiveLanguage } from './i18n';
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120) || 'id';
@@ -546,6 +547,7 @@ export async function startPlayerGame(room: CompetitionRoom): Promise<void> {
         difficulty: room.difficulty,
         category: room.category,
         roomTitle: room.title,
+        language: getActiveLanguage(),
       }),
     });
 

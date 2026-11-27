@@ -29,6 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import { LiveTrendSvgChart } from '@/components/LivePerformanceCharts';
 import {
@@ -39,6 +40,12 @@ import { PlatformUsersTracker } from '@/components/PlatformUsersTracker';
 import { BroadcastItem, CompetitionRoom, UserResult } from '@/lib/types';
 import { findRoomByCode } from '@/lib/firestore-service';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
+import {
+  formatNumberLocale,
+  tFormat,
+  translateCategory,
+  translateDifficulty,
+} from '@/lib/i18n';
 import heroCarImg from '@/src/assets/images/hero_angola_highway_car_1795615139713.jpg';
 import trophyImg from '@/src/assets/images/trophy_gold_emblem_1795615139789.jpg';
 
@@ -56,6 +63,7 @@ function toMillis(ts: unknown): number {
 export default function DashboardPage() {
   const router = useRouter();
   const { user, profile, loading } = useAuth();
+  const { dict, language } = useLanguage();
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [results, setResults] = useState<UserResult[]>([]);
   const [inlineAds, setInlineAds] = useState<BroadcastItem[]>([]);
@@ -128,7 +136,7 @@ export default function DashboardPage() {
     if (!codeInput.trim()) return;
     const room = await findRoomByCode(codeInput);
     if (!room) {
-      setCodeError('Código não encontrado.');
+      setCodeError(dict.dashboard.codeNotFound);
       return;
     }
     router.push(`/sala/${room.roomId}`);
@@ -152,26 +160,24 @@ export default function DashboardPage() {
 
   if (!loading && !user) {
     return (
-      <AppShell title="Dashboard">
+      <AppShell title={dict.dashboard.guestShellTitle}>
         <div className="bg-[#111520] border border-white/10 rounded-2xl p-6 sm:p-8 text-center space-y-4">
           <h2 className="text-2xl font-bold text-white">
-            Inicia sessão para acederes ao teu painel
+            {dict.dashboard.guestTitle}
           </h2>
-          <p className="text-sm text-slate-400">
-            Entra ou cria uma conta para participar em competições ao vivo.
-          </p>
+          <p className="text-sm text-slate-400">{dict.dashboard.guestDesc}</p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link
               href="/entrar"
               className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
             >
-              Entrar
+              {dict.common.enter}
             </Link>
             <Link
               href="/registar"
               className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
             >
-              Registar-se
+              {dict.common.register}
             </Link>
           </div>
         </div>
@@ -185,7 +191,7 @@ export default function DashboardPage() {
     (featuredRoom.status === 'FINISHED' || featuredFinCount >= 100);
 
   return (
-    <AppShell title="Dashboard Principal">
+    <AppShell title={dict.dashboard.shellTitle}>
       {previewVideo && (
         <FullscreenVideoAdModal
           ad={previewVideo}
@@ -198,23 +204,24 @@ export default function DashboardPage() {
         <section className="relative rounded-2xl overflow-hidden border border-white/10 min-h-[200px] sm:min-h-[240px] flex items-end">
           <Image
             src={heroCarImg}
-            alt="Condução Segura Começa com Conhecimento"
+            alt={dict.dashboard.heroTitle}
             fill
             priority
             sizes="(max-width: 1024px) 100vw, 1100px"
             className="object-cover object-center opacity-70"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#07090F] via-[#07090F]/75 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r rtl:bg-gradient-to-l from-[#07090F] via-[#07090F]/75 to-transparent" />
           <div className="relative p-5 sm:p-8 max-w-2xl space-y-3 min-w-0 w-full">
             <p className="text-xs font-bold uppercase tracking-widest text-amber-400">
-              Escola de Condução Live
+              {dict.common.brandName}
             </p>
             <h2 className="font-display text-2xl sm:text-4xl font-extrabold text-white leading-tight text-balance">
-              Condução Segura Começa com Conhecimento!
+              {dict.dashboard.heroTitle}
             </h2>
             <p className="text-sm text-slate-300">
-              Olá, {profile?.displayName || 'Condutor'}. Prepara-te com exames
-              simultâneos do Código de Estrada de Angola.
+              {tFormat(dict.dashboard.heroSubtitle, {
+                name: profile?.displayName || dict.common.driverDefault,
+              })}
             </p>
             <div className="flex flex-wrap items-center gap-2.5 pt-1">
               <Link
@@ -222,14 +229,14 @@ export default function DashboardPage() {
                 className="min-h-[44px] px-4 sm:px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
               >
                 <PlusCircle className="w-4 h-4 shrink-0" />
-                Criar Sala ao Vivo
+                {dict.dashboard.createLiveRoom}
               </Link>
               <Link
                 href="/salas"
                 className="min-h-[44px] px-4 sm:px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors whitespace-nowrap"
               >
                 <Radio className="w-4 h-4 shrink-0" />
-                Ver Salas Disponíveis
+                {dict.dashboard.viewAvailableRooms}
               </Link>
             </div>
           </div>
@@ -238,27 +245,35 @@ export default function DashboardPage() {
         {/* Live KPI Strip */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 min-w-0">
-            <p className="text-xs text-slate-400 truncate">Pontos Totais</p>
+            <p className="text-xs text-slate-400 truncate">
+              {dict.dashboard.totalPoints}
+            </p>
             <p className="font-mono-tabular text-2xl font-bold text-amber-400 mt-1">
-              {profile?.totalPoints ?? 0}
+              {formatNumberLocale(language, profile?.totalPoints ?? 0)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 min-w-0">
-            <p className="text-xs text-slate-400 truncate">Vitórias</p>
+            <p className="text-xs text-slate-400 truncate">
+              {dict.dashboard.wins}
+            </p>
             <p className="font-mono-tabular text-2xl font-bold text-white mt-1">
-              {profile?.wins ?? 0}
+              {formatNumberLocale(language, profile?.wins ?? 0)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 min-w-0">
-            <p className="text-xs text-slate-400 truncate">Taxa de Acerto</p>
+            <p className="text-xs text-slate-400 truncate">
+              {dict.dashboard.accuracyRate}
+            </p>
             <p className="font-mono-tabular text-2xl font-bold text-emerald-400 mt-1">
               {accuracy}%
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 min-w-0">
-            <p className="text-xs text-slate-400 truncate">Jogos / Sequência</p>
+            <p className="text-xs text-slate-400 truncate">
+              {dict.dashboard.gamesStreak}
+            </p>
             <p className="font-mono-tabular text-2xl font-bold text-red-400 mt-1">
-              {profile?.gamesPlayed ?? 0}{' '}
+              {formatNumberLocale(language, profile?.gamesPlayed ?? 0)}{' '}
               <span className="text-sm text-slate-400">
                 ({profile?.currentStreak ?? 0})
               </span>
@@ -276,13 +291,15 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-bold text-white flex items-center gap-2 min-w-0">
                   <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
-                  <span className="truncate">Sala de Competição em Destaque</span>
+                  <span className="truncate">
+                    {dict.dashboard.featuredRoomTitle}
+                  </span>
                 </h3>
                 <Link
                   href="/salas"
                   className="text-xs text-red-400 hover:text-red-300 font-semibold whitespace-nowrap shrink-0"
                 >
-                  Ver todas
+                  {dict.dashboard.viewAll}
                 </Link>
               </div>
 
@@ -291,7 +308,8 @@ export default function DashboardPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-slate-400 truncate">
-                        {featuredRoom.category} · {featuredRoom.difficulty} ·{' '}
+                        {translateCategory(language, featuredRoom.category)} ·{' '}
+                        {translateDifficulty(language, featuredRoom.difficulty)} ·{' '}
                         <span className="font-mono-tabular text-white">
                           {featuredRoom.code}
                         </span>
@@ -306,19 +324,27 @@ export default function DashboardPage() {
                       }`}
                     >
                       {featuredClosed
-                        ? `Encerrada · ${featuredFinCount}/100`
-                        : `Aberta · ${featuredFinCount}/100`}
+                        ? tFormat(dict.dashboard.roomClosedBadge, {
+                            count: featuredFinCount,
+                          })
+                        : tFormat(dict.dashboard.roomOpenBadge, {
+                            count: featuredFinCount,
+                          })}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
                     <span className="inline-flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-slate-400 shrink-0" />
-                      {featuredRoom.participantCount} alunos ·{' '}
-                      {featuredFinCount}/100 finalistas
+                      {tFormat(dict.dashboard.studentsCount, {
+                        count: featuredRoom.participantCount,
+                        fin: featuredFinCount,
+                      })}
                     </span>
                     <span className="font-mono-tabular">
-                      {featuredRoom.totalQuestions} perguntas ·{' '}
-                      {featuredRoom.timePerQuestion}s
+                      {tFormat(dict.dashboard.questionsCount, {
+                        count: featuredRoom.totalQuestions,
+                        sec: featuredRoom.timePerQuestion,
+                      })}
                     </span>
                   </div>
                   <Link
@@ -326,20 +352,22 @@ export default function DashboardPage() {
                     className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors"
                   >
                     <Play className="w-4 h-4 fill-current" />
-                    {featuredClosed ? 'Ver Resultados' : 'Entrar na Sala'}
+                    {featuredClosed
+                      ? dict.dashboard.viewResults
+                      : dict.dashboard.enterRoom}
                   </Link>
                 </div>
               ) : (
                 <div className="bg-[#161B29] border border-white/[0.06] rounded-xl p-6 text-center space-y-3">
                   <p className="text-sm text-slate-300">
-                    Ainda não há salas públicas ativas neste momento.
+                    {dict.dashboard.noPublicRooms}
                   </p>
                   <Link
                     href="/salas?criar=1"
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
                   >
                     <PlusCircle className="w-4 h-4" />
-                    Criar Primeira Sala com IA
+                    {dict.dashboard.createFirstAiRoom}
                   </Link>
                 </div>
               )}
@@ -350,13 +378,15 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-bold text-white flex items-center gap-2 min-w-0">
                   <BarChart3 className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <span className="truncate">Desempenho em Tempo Real</span>
+                  <span className="truncate">
+                    {dict.dashboard.livePerformance}
+                  </span>
                 </h3>
                 <Link
                   href="/estatisticas"
                   className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold whitespace-nowrap shrink-0"
                 >
-                  Detalhes
+                  {dict.common.details}
                 </Link>
               </div>
               <LiveTrendSvgChart results={results} height={160} />
@@ -368,22 +398,22 @@ export default function DashboardPage() {
               className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-3 min-w-0"
             >
               <label className="block text-sm font-bold text-white">
-                Entrar com Código de Convite
+                {dict.dashboard.joinCodeLabel}
               </label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
                   value={codeInput}
                   onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-                  placeholder="Insere o código da sala..."
+                  placeholder={dict.dashboard.joinCodePlaceholder}
                   className="flex-1 min-w-0 min-h-[44px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular uppercase focus:outline-none focus:border-red-500"
                 />
                 <button
                   type="submit"
                   className="min-h-[44px] px-5 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-bold text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  Entrar
-                  <ArrowRight className="w-4 h-4" />
+                  {dict.common.enter}
+                  <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                 </button>
               </div>
               {codeError && <p className="text-xs text-red-400">{codeError}</p>}
@@ -402,14 +432,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-white truncate">
-                    Minhas Salas
+                    {dict.dashboard.quickRoomsTitle}
                   </p>
                   <p className="text-xs text-slate-400 truncate">
-                    Participe dos próximos jogos ao vivo
+                    {dict.dashboard.quickRoomsSub}
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0" />
+              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0 rtl:rotate-180" />
             </Link>
 
             <Link
@@ -422,14 +452,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-white truncate">
-                    Estatísticas
+                    {dict.dashboard.quickStatsTitle}
                   </p>
                   <p className="text-xs text-slate-400 truncate">
-                    Veja o seu progresso e taxa de acerto
+                    {dict.dashboard.quickStatsSub}
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0" />
+              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0 rtl:rotate-180" />
             </Link>
 
             <Link
@@ -442,14 +472,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-white truncate">
-                    Regras de Trânsito
+                    {dict.dashboard.quickRulesTitle}
                   </p>
                   <p className="text-xs text-slate-400 truncate">
-                    Aprenda sinais e pergunte à IA
+                    {dict.dashboard.quickRulesSub}
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0" />
+              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0 rtl:rotate-180" />
             </Link>
 
             <Link
@@ -462,14 +492,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-white truncate">
-                    Definições & Suporte
+                    {dict.dashboard.quickSettingsTitle}
                   </p>
                   <p className="text-xs text-slate-400 truncate">
-                    Voz IA, preferências e apoio ao aluno
+                    {dict.dashboard.quickSettingsSub}
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0" />
+              <ChevronRight className="w-5 h-5 text-slate-500 shrink-0 rtl:rotate-180" />
             </Link>
 
             {/* Non-intrusive inline announcement/ad spotlight */}
@@ -487,16 +517,16 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setDismissedInlineId(inlineSpotlight.id)}
-                    aria-label="Fechar destaque"
-                    className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center cursor-pointer"
+                    aria-label={dict.dashboard.closeHighlightAria}
+                    className="absolute top-3 end-3 w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 pr-8">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 pe-8">
                     <Megaphone className="w-3.5 h-3.5 shrink-0" />
-                    <span>Comunicado Oficial</span>
+                    <span>{dict.dashboard.officialAnnouncement}</span>
                   </div>
-                  <p className="text-sm font-bold text-white pr-6 break-words">
+                  <p className="text-sm font-bold text-white pe-6 break-words">
                     {inlineSpotlight.title}
                   </p>
                   <p className="text-xs text-slate-300 break-words">
@@ -508,7 +538,7 @@ export default function DashboardPage() {
                         href={inlineSafeLink}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
                       >
-                        {inlineSpotlight.linkLabel || 'Ver Detalhes'}
+                        {inlineSpotlight.linkLabel || dict.dashboard.viewDetails}
                         <ExternalLink className="w-3 h-3" />
                       </Link>
                     ) : (
@@ -518,7 +548,7 @@ export default function DashboardPage() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 hover:underline"
                       >
-                        {inlineSpotlight.linkLabel || 'Abrir Link'}
+                        {inlineSpotlight.linkLabel || dict.common.openLink}
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     ))}
@@ -526,11 +556,11 @@ export default function DashboardPage() {
               ))}
 
             {/* Bottom Road Safety Banner */}
-            <div className="rounded-2xl bg-gradient-to-r from-red-950/70 to-[#111520] border border-red-500/30 p-4 flex items-center gap-4 min-w-0">
+            <div className="rounded-2xl bg-gradient-to-r rtl:bg-gradient-to-l from-red-950/70 to-[#111520] border border-red-500/30 p-4 flex items-center gap-4 min-w-0">
               <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-amber-400/30">
                 <Image
                   src={trophyImg}
-                  alt="Segurança Rodoviária"
+                  alt={dict.dashboard.bannerHeadline}
                   fill
                   sizes="48px"
                   className="object-cover"
@@ -538,10 +568,10 @@ export default function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="font-display text-xl font-bold text-white leading-tight">
-                  Juntos por uma estrada mais segura!
+                  {dict.dashboard.bannerHeadline}
                 </p>
                 <p className="text-xs text-slate-300">
-                  Educação rodoviária interativa em Angola.
+                  {dict.dashboard.bannerSub}
                 </p>
               </div>
             </div>

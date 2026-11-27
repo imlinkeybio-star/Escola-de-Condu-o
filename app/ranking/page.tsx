@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import {
   CompetitionRoom,
@@ -20,10 +21,12 @@ import {
   RankingEntry,
   RoomParticipant,
 } from '@/lib/types';
+import { formatNumberLocale, tFormat } from '@/lib/i18n';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 export default function RankingPage() {
   const { user, profile } = useAuth();
+  const { language, dict } = useLanguage();
   const [tab, setTab] = useState<'global' | 'weekly' | 'room'>('global');
   const [globalList, setGlobalList] = useState<RankingEntry[]>([]);
   const [weeklyList, setWeeklyList] = useState<RankingEntry[]>([]);
@@ -121,7 +124,7 @@ export default function RankingPage() {
           name: e.displayName,
           photoURL: e.photoURL,
           points: e.points,
-          meta: `${e.wins} vitórias · ${e.accuracy}% acerto`,
+          meta: tFormat(dict.ranking.metaGlobal, { wins: e.wins, acc: e.accuracy }),
         }))
       : tab === 'weekly'
         ? weeklyList.map((e) => ({
@@ -129,31 +132,37 @@ export default function RankingPage() {
             name: e.displayName,
             photoURL: e.photoURL,
             points: e.points,
-            meta: `${e.wins} vitórias · ${e.gamesPlayed} jogos`,
+            meta: tFormat(dict.ranking.metaWeekly, {
+              wins: e.wins,
+              games: e.gamesPlayed,
+            }),
           }))
         : roomParticipants.map((p) => ({
             uid: p.uid,
             name: p.displayName,
             photoURL: p.photoURL,
             points: p.score,
-            meta: `${p.correctCount} certas · ${p.wrongCount} erradas`,
+            meta: tFormat(dict.ranking.metaRoom, {
+              correct: p.correctCount,
+              wrong: p.wrongCount,
+            }),
           }));
 
   const myIdx = activeRows.findIndex((r) => r.uid === user?.uid);
   const myRow = myIdx >= 0 ? activeRows[myIdx] : null;
 
   return (
-    <AppShell title="Classificação e Rankings">
+    <AppShell title={dict.ranking.shellTitle}>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
           <div className="flex items-center gap-3 min-w-0">
             <Trophy className="w-7 h-7 text-amber-400 shrink-0" />
             <div className="min-w-0">
               <h2 className="font-display text-2xl font-extrabold text-white break-words">
-                Ranking Oficial Angola
+                {dict.ranking.heading}
               </h2>
               <p className="text-xs text-slate-400">
-                Atualização em tempo real por pontuação, vitórias e precisão.
+                {dict.ranking.subtitle}
               </p>
             </div>
           </div>
@@ -162,9 +171,9 @@ export default function RankingPage() {
           <div className="flex flex-wrap items-center gap-1 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
             {(
               [
-                { id: 'global', label: 'Geral' },
-                { id: 'weekly', label: 'Semanal' },
-                { id: 'room', label: 'Na Sala' },
+                { id: 'global', label: dict.ranking.tabGlobal },
+                { id: 'weekly', label: dict.ranking.tabWeekly },
+                { id: 'room', label: dict.ranking.tabRoom },
               ] as const
             ).map((t) => (
               <button
@@ -185,7 +194,7 @@ export default function RankingPage() {
         {tab === 'room' && rooms.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
             <label className="text-xs font-medium text-slate-400 shrink-0">
-              Selecionar Sala:
+              {dict.ranking.selectRoom}
             </label>
             <select
               value={selectedRoomId}
@@ -227,7 +236,7 @@ export default function RankingPage() {
                     />
                   </div>
                   <span
-                    className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
+                    className={`absolute -bottom-1 -end-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
                       idx === 0
                         ? 'bg-amber-400 text-black'
                         : idx === 1
@@ -251,7 +260,7 @@ export default function RankingPage() {
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">{row.meta}</p>
                   <p className="font-mono-tabular text-lg font-extrabold text-amber-400 mt-1">
-                    {row.points} pts
+                    {formatNumberLocale(language, row.points)} {dict.common.pts}
                   </p>
                 </div>
               </div>
@@ -263,8 +272,7 @@ export default function RankingPage() {
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl overflow-hidden">
           {activeRows.length === 0 ? (
             <div className="p-10 text-center text-sm text-slate-400">
-              Ainda não existem registos nesta classificação. Participa numa
-              competição para estrear a tabela!
+              {dict.ranking.empty}
             </div>
           ) : (
             <div className="divide-y divide-white/[0.06]">
@@ -299,7 +307,7 @@ export default function RankingPage() {
                       </div>
                     </div>
                     <span className="font-mono-tabular text-sm sm:text-base font-bold text-amber-400 shrink-0">
-                      {row.points} pts
+                      {formatNumberLocale(language, row.points)} {dict.common.pts}
                     </span>
                   </div>
                 );
@@ -323,16 +331,16 @@ export default function RankingPage() {
                 />
               </div>
               <div>
-                <p className="text-xs text-slate-400">A tua pontuação</p>
+                <p className="text-xs text-slate-400">{dict.ranking.yourScore}</p>
                 <p className="font-mono-tabular text-lg font-extrabold text-amber-400">
-                  {myRow ? myRow.points : profile.totalPoints} pts
+                  {formatNumberLocale(language, myRow ? myRow.points : profile.totalPoints)} {dict.common.pts}
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-slate-400">Posição</p>
+            <div className="text-end">
+              <p className="text-xs text-slate-400">{dict.ranking.rankLabel}</p>
               <p className="font-mono-tabular text-lg font-extrabold text-white">
-                {myIdx >= 0 ? `#${myIdx + 1}` : 'Sem classificação'}
+                {myIdx >= 0 ? `#${myIdx + 1}` : dict.ranking.unranked}
               </p>
             </div>
           </div>

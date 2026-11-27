@@ -23,6 +23,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import {
   CompetitionRoom,
@@ -34,11 +35,24 @@ import {
   deleteCompetitionRoom,
   findRoomByCode,
 } from '@/lib/firestore-service';
+import {
+  tFormat,
+  translateCategory,
+  translateDifficulty,
+} from '@/lib/i18n';
+
+const DIFFICULTIES: DifficultyLevel[] = [
+  'Iniciante',
+  'Intermédio',
+  'Avançado',
+  'Exame Oficial',
+];
 
 function SalasContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, profile, isAdmin, isOwner } = useAuth();
+  const { dict, language } = useLanguage();
 
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'finished'>('all');
@@ -53,10 +67,8 @@ function SalasContent() {
   const [error, setError] = useState('');
 
   // Create form state
-  const [title, setTitle] = useState('Concurso Código de Estrada Luanda');
-  const [description, setDescription] = useState(
-    'Perguntas 100% geradas em tempo real pela IA com base no Código de Estrada de Angola. Ranking aberto até 100 finalistas.'
-  );
+  const [title, setTitle] = useState(dict.salas.defaultRoomTitle);
+  const [description, setDescription] = useState(dict.salas.defaultRoomDesc);
   const [totalQuestions, setTotalQuestions] = useState(10);
   const [timePerQuestion, setTimePerQuestion] = useState(60);
   const [maxParticipants, setMaxParticipants] = useState(200);
@@ -101,11 +113,7 @@ function SalasContent() {
       setShowCreate(false);
       router.push(`/sala/${room.roomId}`);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Erro ao criar sala de competição.'
-      );
+      setError(err instanceof Error ? err.message : dict.salas.createError);
     } finally {
       setCreating(false);
     }
@@ -117,7 +125,7 @@ function SalasContent() {
     if (!searchCode.trim()) return;
     const found = await findRoomByCode(searchCode);
     if (!found) {
-      setError('Nenhuma sala encontrada com esse código.');
+      setError(dict.salas.codeNotFound);
       return;
     }
     router.push(`/sala/${found.roomId}`);
@@ -131,11 +139,7 @@ function SalasContent() {
       await deleteCompetitionRoom(confirmDeleteRoom.roomId, isAdmin || isOwner);
       setConfirmDeleteRoom(null);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível eliminar a sala.'
-      );
+      setError(err instanceof Error ? err.message : dict.salas.deleteError);
     } finally {
       setDeletingRoomId(null);
     }
@@ -151,26 +155,26 @@ function SalasContent() {
   });
 
   return (
-    <AppShell title="Salas de Competição ao Vivo">
+    <AppShell title={dict.salas.shellTitle}>
       <div className="space-y-6">
         {/* Top Action Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 min-w-0">
           <form onSubmit={handleJoinByCode} className="flex-1 flex flex-col sm:flex-row gap-2 min-w-0">
             <div className="relative flex-1 min-w-0">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute start-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchCode}
                 onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
-                placeholder="Entrar por código (ex: A7K92B)"
-                className="w-full min-h-[44px] pl-10 pr-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular uppercase focus:outline-none focus:border-red-500"
+                placeholder={dict.salas.searchPlaceholder}
+                className="w-full min-h-[44px] ps-10 pe-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular uppercase focus:outline-none focus:border-red-500"
               />
             </div>
             <button
               type="submit"
               className="min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer whitespace-nowrap shrink-0"
             >
-              Procurar
+              {dict.salas.searchBtn}
             </button>
           </form>
 
@@ -179,7 +183,7 @@ function SalasContent() {
             className="w-full md:w-auto min-h-[44px] px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
           >
             <PlusCircle className="w-4 h-4" />
-            Criar Nova Sala (IA)
+            {dict.salas.createNewBtn}
           </button>
         </div>
 
@@ -193,9 +197,9 @@ function SalasContent() {
         <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
           {(
             [
-              { id: 'all', label: 'Todas' },
-              { id: 'active', label: 'Abertas / Em Direto' },
-              { id: 'finished', label: 'Concluídas' },
+              { id: 'all', label: dict.salas.filterAll },
+              { id: 'active', label: dict.salas.filterActive },
+              { id: 'finished', label: dict.salas.filterFinished },
             ] as const
           ).map((t) => (
             <button
@@ -217,17 +221,14 @@ function SalasContent() {
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-10 text-center space-y-3">
             <Radio className="w-8 h-8 text-slate-500 mx-auto" />
             <h3 className="text-lg font-bold text-white">
-              Sem salas nesta categoria
+              {dict.salas.emptyTitle}
             </h3>
-            <p className="text-sm text-slate-400">
-              Cria uma nova sala e a Inteligência Artificial prepara
-              automaticamente as perguntas sobre o Código de Estrada de Angola.
-            </p>
+            <p className="text-sm text-slate-400">{dict.salas.emptyDesc}</p>
             <button
               onClick={() => setShowCreate(true)}
               className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer"
             >
-              Criar Sala Agora
+              {dict.salas.createNowBtn}
             </button>
           </div>
         ) : (
@@ -243,7 +244,7 @@ function SalasContent() {
                   <div className="space-y-2 min-w-0">
                     <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
                       <span className="font-mono-tabular text-slate-400">
-                        {r.code} · {r.difficulty}
+                        {r.code} · {translateDifficulty(language, r.difficulty)}
                       </span>
                       <span
                         className={`font-bold tabular-nums ${
@@ -251,8 +252,8 @@ function SalasContent() {
                         }`}
                       >
                         {closed
-                          ? `Encerrada (${fin}/100 finalistas)`
-                          : `Aberta · ${fin}/100 finalistas`}
+                          ? tFormat(dict.salas.closedStatus, { fin })
+                          : tFormat(dict.salas.openStatus, { fin })}
                       </span>
                     </div>
                     <h3 className="text-lg font-bold text-white leading-snug break-words">
@@ -267,10 +268,16 @@ function SalasContent() {
                     <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-slate-300 tabular-nums">
                       <span className="inline-flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-slate-400" />
-                        {r.participantCount} alunos · {fin}/100 concluíram
+                        {tFormat(dict.salas.completedSuffix, {
+                          count: r.participantCount,
+                          fin,
+                        })}
                       </span>
                       <span>
-                        {r.totalQuestions} perguntas · {r.timePerQuestion}s
+                        {tFormat(dict.salas.questionsDuration, {
+                          q: r.totalQuestions,
+                          s: r.timePerQuestion,
+                        })}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -280,15 +287,19 @@ function SalasContent() {
                       >
                         <Play className="w-3.5 h-3.5 fill-current shrink-0" />
                         <span className="truncate">
-                          {closed ? 'Ver Ranking Final' : 'Entrar na Sala'}
+                          {closed
+                            ? dict.salas.finalRankingBtn
+                            : dict.salas.enterRoomBtn}
                         </span>
                       </Link>
                       {(r.hostId === user?.uid || isAdmin || isOwner) && (
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteRoom(r)}
-                          aria-label={`Eliminar sala ${r.title}`}
-                          title="Eliminar sala"
+                          aria-label={tFormat(dict.salas.deleteRoomAria, {
+                            title: r.title,
+                          })}
+                          title={dict.salas.deleteRoomTitle}
                           className="min-w-[42px] min-h-[42px] px-3 rounded-xl bg-red-600/15 hover:bg-red-600/30 border border-red-500/30 text-red-300 flex items-center justify-center cursor-pointer shrink-0"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -310,11 +321,12 @@ function SalasContent() {
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-amber-400" />
                   <h3 className="text-lg font-bold text-white">
-                    Nova Competição com IA Gemini
+                    {dict.salas.modalTitle}
                   </h3>
                 </div>
                 <button
                   onClick={() => setShowCreate(false)}
+                  aria-label={dict.common.close}
                   className="p-1.5 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -324,7 +336,7 @@ function SalasContent() {
               <form onSubmit={handleCreateRoom} className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-300">
-                    Nome da Competição
+                    {dict.salas.roomNameLabel}
                   </label>
                   <input
                     type="text"
@@ -339,7 +351,7 @@ function SalasContent() {
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-300">
-                    Descrição
+                    {dict.salas.roomDescLabel}
                   </label>
                   <textarea
                     rows={2}
@@ -353,7 +365,7 @@ function SalasContent() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
-                      Categoria
+                      {dict.salas.categoryLabel}
                     </label>
                     <select
                       value={category}
@@ -362,14 +374,14 @@ function SalasContent() {
                     >
                       {QUESTION_CATEGORIES.map((c) => (
                         <option key={c} value={c}>
-                          {c}
+                          {translateCategory(language, c)}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
-                      Dificuldade
+                      {dict.salas.difficultyLabel}
                     </label>
                     <select
                       value={difficulty}
@@ -378,10 +390,11 @@ function SalasContent() {
                       }
                       className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
                     >
-                      <option value="Iniciante">Iniciante</option>
-                      <option value="Intermédio">Intermédio</option>
-                      <option value="Avançado">Avançado</option>
-                      <option value="Exame Oficial">Exame Oficial</option>
+                      {DIFFICULTIES.map((d) => (
+                        <option key={d} value={d}>
+                          {translateDifficulty(language, d)}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -389,7 +402,7 @@ function SalasContent() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
-                      Perguntas
+                      {dict.salas.questionsLabel}
                     </label>
                     <input
                       type="number"
@@ -404,7 +417,7 @@ function SalasContent() {
                   </div>
                   <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
-                      Tempo (seg)
+                      {dict.salas.timeSecLabel}
                     </label>
                     <input
                       type="number"
@@ -419,7 +432,7 @@ function SalasContent() {
                   </div>
                   <div className="space-y-1 min-w-0">
                     <label className="text-xs font-medium text-slate-300">
-                      Máx. Alunos
+                      {dict.salas.maxStudentsLabel}
                     </label>
                     <input
                       type="number"
@@ -435,9 +448,7 @@ function SalasContent() {
                 </div>
 
                 <p className="text-xs text-slate-400 bg-[#090C14] border border-white/10 rounded-xl p-3">
-                  Cada aluno recebe perguntas aleatórias geradas 100% em tempo
-                  real pela IA com base no Código de Estrada de Angola. A sala
-                  mantém o ranking ativo até 100 pessoas finalizarem.
+                  {dict.salas.aiDisclaimer}
                 </p>
 
                 <button
@@ -446,8 +457,8 @@ function SalasContent() {
                   className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-sm cursor-pointer"
                 >
                   {creating
-                    ? 'A criar sala ao vivo...'
-                    : 'Criar Sala (Perguntas IA em Tempo Real)'}
+                    ? dict.salas.creatingRoomBtn
+                    : dict.salas.createRoomSubmit}
                 </button>
               </form>
             </div>
@@ -464,22 +475,23 @@ function SalasContent() {
                     <Trash2 className="w-4 h-4" />
                   </div>
                   <h3 className="text-base font-bold text-white">
-                    Eliminar Sala
+                    {dict.salas.deleteModalTitle}
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setConfirmDeleteRoom(null)}
+                  aria-label={dict.common.close}
                   className="p-1 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
-                Tens a certeza que queres eliminar a sala{' '}
-                <strong className="text-white">{confirmDeleteRoom.title}</strong>{' '}
-                ({confirmDeleteRoom.code})? Esta ação remove a sala da lista ao
-                vivo e não pode ser revertida.
+                {tFormat(dict.salas.deleteModalBody, {
+                  title: confirmDeleteRoom.title,
+                  code: confirmDeleteRoom.code,
+                })}
               </p>
               <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
                 <button
@@ -488,7 +500,7 @@ function SalasContent() {
                   disabled={Boolean(deletingRoomId)}
                   className="min-h-[42px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white cursor-pointer"
                 >
-                  Cancelar
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -497,7 +509,9 @@ function SalasContent() {
                   className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  {deletingRoomId ? 'A eliminar...' : 'Confirmar Eliminação'}
+                  {deletingRoomId
+                    ? dict.common.deleting
+                    : dict.salas.confirmDeleteBtn}
                 </button>
               </div>
             </div>

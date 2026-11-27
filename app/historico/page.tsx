@@ -12,8 +12,14 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import { CompetitionRoom, UserResult } from '@/lib/types';
+import {
+  formatDateLocale,
+  formatNumberLocale,
+  tFormat,
+} from '@/lib/i18n';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -26,24 +32,25 @@ function toMillis(ts: unknown): number {
   return 0;
 }
 
-function formatWhen(ts: unknown): string {
-  const ms = toMillis(ts);
-  if (!ms) return 'Recente';
-  return new Date(ms).toLocaleString('pt-AO', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export default function HistoricoPage() {
   const { user, profile } = useAuth();
+  const { language, dict } = useLanguage();
   const [results, setResults] = useState<UserResult[]>([]);
   const [myCreatedRooms, setMyCreatedRooms] = useState<CompetitionRoom[]>([]);
   const [loadedUid, setLoadedUid] = useState<string | null>(null);
   const [tab, setTab] = useState<'all' | 'wins' | 'created'>('all');
+
+  const formatWhen = (ts: unknown): string => {
+    const ms = toMillis(ts);
+    if (!ms) return dict.common.recent;
+    return formatDateLocale(language, ms, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -96,18 +103,17 @@ export default function HistoricoPage() {
 
   if (!user) {
     return (
-      <AppShell title="Histórico Completo">
+      <AppShell title={dict.history.shellTitle}>
         <div className="bg-[#111520] border border-white/10 rounded-2xl p-8 text-center space-y-4">
           <History className="w-8 h-8 text-slate-400 mx-auto" />
           <p className="text-sm text-slate-300">
-            Inicia sessão para consultares o teu histórico pessoal completo em
-            tempo real.
+            {dict.history.guestDesc}
           </p>
           <Link
             href="/entrar"
             className="inline-block px-5 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold"
           >
-            Entrar
+            {dict.common.enter}
           </Link>
         </div>
       </AppShell>
@@ -118,53 +124,51 @@ export default function HistoricoPage() {
   const displayedResults = tab === 'wins' ? winsList : results;
 
   return (
-    <AppShell title="Histórico Completo da Conta">
+    <AppShell title={dict.history.shellTitleLogged}>
       <div className="space-y-5 min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-display text-2xl font-extrabold text-white">
-              O Teu Histórico Completo
+              {dict.history.heading}
             </h2>
             <p className="text-xs text-slate-400">
-              Registos exclusivos da conta de{' '}
-              <strong className="text-slate-200">
-                {profile?.displayName || user.email}
-              </strong>{' '}
-              atualizados em tempo real.
+              {tFormat(dict.history.subtitle, {
+                name: profile?.displayName || user.email || '',
+              })}
             </p>
           </div>
           <Link
             href="/salas"
             className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold whitespace-nowrap shrink-0 self-start sm:self-auto"
           >
-            Nova Competição
+            {dict.history.newCompetition}
           </Link>
         </div>
 
         {/* Account Owner Summary Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-3.5">
-            <p className="text-[11px] text-slate-400">Competições</p>
+            <p className="text-[11px] text-slate-400">{dict.history.competitionsCount}</p>
             <p className="font-mono-tabular text-xl font-bold text-white">
-              {results.length}
+              {formatNumberLocale(language, results.length)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-3.5">
-            <p className="text-[11px] text-slate-400">Vitórias</p>
+            <p className="text-[11px] text-slate-400">{dict.history.winsCount}</p>
             <p className="font-mono-tabular text-xl font-bold text-amber-400">
-              {winsList.length}
+              {formatNumberLocale(language, winsList.length)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-3.5">
-            <p className="text-[11px] text-slate-400">Pontos Acumulados</p>
+            <p className="text-[11px] text-slate-400">{dict.history.accumulatedPoints}</p>
             <p className="font-mono-tabular text-xl font-bold text-emerald-400">
-              {profile?.totalPoints ?? 0}
+              {formatNumberLocale(language, profile?.totalPoints ?? 0)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-xl p-3.5">
-            <p className="text-[11px] text-slate-400">Salas Criadas</p>
+            <p className="text-[11px] text-slate-400">{dict.history.createdRoomsCount}</p>
             <p className="font-mono-tabular text-xl font-bold text-sky-400">
-              {myCreatedRooms.length}
+              {formatNumberLocale(language, myCreatedRooms.length)}
             </p>
           </div>
         </div>
@@ -173,9 +177,9 @@ export default function HistoricoPage() {
         <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
           {(
             [
-              { id: 'all', label: `Participações (${results.length})` },
-              { id: 'wins', label: `Vitórias (${winsList.length})` },
-              { id: 'created', label: `Salas Criadas (${myCreatedRooms.length})` },
+              { id: 'all', label: tFormat(dict.history.tabAll, { count: results.length }) },
+              { id: 'wins', label: tFormat(dict.history.tabWins, { count: winsList.length }) },
+              { id: 'created', label: tFormat(dict.history.tabCreated, { count: myCreatedRooms.length }) },
             ] as const
           ).map((t) => (
             <button
@@ -202,7 +206,7 @@ export default function HistoricoPage() {
             <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-3">
               <Radio className="w-8 h-8 text-slate-500 mx-auto" />
               <p className="text-sm text-slate-300">
-                Ainda não criaste nenhuma sala com esta conta.
+                {dict.history.noCreatedRooms}
               </p>
             </div>
           ) : (
@@ -218,12 +222,15 @@ export default function HistoricoPage() {
                       {rm.title}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Código {rm.code} · {rm.participantCount} alunos ·{' '}
-                      {rm.finishedCount ?? 0}/100 finalistas ·{' '}
-                      {formatWhen(rm.createdAt)}
+                      {tFormat(dict.history.roomMeta, {
+                        code: rm.code,
+                        participants: rm.participantCount,
+                        fin: rm.finishedCount ?? 0,
+                        when: formatWhen(rm.createdAt),
+                      })}
                     </p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0 rtl:rotate-180" />
                 </Link>
               ))}
             </div>
@@ -232,17 +239,16 @@ export default function HistoricoPage() {
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-10 text-center space-y-3">
             <History className="w-8 h-8 text-slate-500 mx-auto" />
             <h3 className="text-base font-bold text-white">
-              Sem competições nesta vista
+              {dict.history.emptyTitle}
             </h3>
             <p className="text-xs text-slate-400">
-              Entra numa sala ao vivo para registar o teu próximo resultado
-              oficial.
+              {dict.history.emptyDesc}
             </p>
             <Link
               href="/salas"
               className="inline-block px-5 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold"
             >
-              Ver Salas ao Vivo
+              {dict.history.viewLiveRooms}
             </Link>
           </div>
         ) : (
@@ -272,17 +278,22 @@ export default function HistoricoPage() {
                       {r.roomTitle}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5 break-words">
-                      {r.rank}.º de {r.totalParticipants} · {r.correctCount} certas ·{' '}
-                      {r.wrongCount} erradas · {r.accuracy}% ·{' '}
-                      {formatWhen(r.finishedAt)}
+                      {tFormat(dict.history.resultMeta, {
+                        rank: r.rank,
+                        total: r.totalParticipants,
+                        correct: r.correctCount,
+                        wrong: r.wrongCount,
+                        acc: r.accuracy,
+                        when: formatWhen(r.finishedAt),
+                      })}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                   <span className="font-mono-tabular text-sm sm:text-base font-extrabold text-amber-400 whitespace-nowrap">
-                    {r.score} pts
+                    {formatNumberLocale(language, r.score)} {dict.common.pts}
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                  <ChevronRight className="w-4 h-4 text-slate-500 rtl:rotate-180" />
                 </div>
               </Link>
             ))}

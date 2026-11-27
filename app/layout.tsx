@@ -7,6 +7,7 @@ import {
 import './globals.css';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { LanguageProvider } from '@/components/LanguageProvider';
 
 const barlowCondensed = Barlow_Condensed({
   subsets: ['latin'],
@@ -57,11 +58,14 @@ export default function RootLayout({
   return (
     <html
       lang="pt-AO"
+      dir="ltr"
       className={`${barlowCondensed.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} dark`}
     >
       <body suppressHydrationWarning className="min-h-screen bg-[#07090F] text-slate-50">
         <ErrorBoundary>
-          <AuthProvider>{children}</AuthProvider>
+          <LanguageProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </LanguageProvider>
         </ErrorBoundary>
       </body>
     </html>

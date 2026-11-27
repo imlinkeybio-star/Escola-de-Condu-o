@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
-import { synthesizePortugueseSpeech } from '@/lib/server/gemini';
+import { synthesizeSpeech } from '@/lib/server/gemini';
+import { normalizeLanguageCode } from '@/lib/i18n/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json()) as { text?: string };
+    const body = (await req.json()) as { text?: string; language?: string };
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) {
       return NextResponse.json(
@@ -21,7 +22,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const audio = await synthesizePortugueseSpeech(text);
+    const language = normalizeLanguageCode(body.language);
+    const audio = await synthesizeSpeech(text, language);
     return NextResponse.json(audio);
   } catch (err) {
     console.error('Erro em /api/tts:', err);

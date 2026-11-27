@@ -1,15 +1,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Bell, Check, HelpCircle, Volume2 } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, Check, Globe, HelpCircle, Volume2 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import { AccountSecurityCard } from '@/components/AccountSecurityCard';
 import { updateUserProfileDetails } from '@/lib/firestore-service';
 import { useVoiceExaminer } from '@/hooks/useVoiceExaminer';
+import { tFormat } from '@/lib/i18n';
 
 export default function DefinicoesPage() {
   const { user, privateInfo, refreshProfile } = useAuth();
+  const { dict, meta } = useLanguage();
   const [voiceOverride, setVoiceOverride] = useState<boolean | null>(null);
   const [notifOverride, setNotifOverride] = useState<boolean | null>(null);
   const [saved, setSaved] = useState(false);
@@ -31,11 +35,11 @@ export default function DefinicoesPage() {
   };
 
   return (
-    <AppShell title="Definições & Suporte">
+    <AppShell title={dict.definicoes.shellTitle}>
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 space-y-5">
           <h2 className="text-lg font-bold text-white">
-            Preferências da Plataforma
+            {dict.definicoes.preferencesTitle}
           </h2>
 
           <div className="flex items-center justify-between gap-4 py-3 border-b border-white/[0.06] min-w-0">
@@ -43,11 +47,10 @@ export default function DefinicoesPage() {
               <Volume2 className="w-5 h-5 text-sky-400 shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white">
-                  Examinadora Virtual por Voz
+                  {dict.definicoes.voiceTitle}
                 </p>
                 <p className="text-xs text-slate-400">
-                  Lê perguntas, opções e explicações em português durante o
-                  concurso.
+                  {dict.definicoes.voiceDesc}
                 </p>
               </div>
             </div>
@@ -59,7 +62,9 @@ export default function DefinicoesPage() {
                   : 'bg-white/10 text-slate-400'
               }`}
             >
-              {voiceEnabled ? 'Ativa' : 'Desativada'}
+              {voiceEnabled
+                ? dict.definicoes.activeLabel
+                : dict.definicoes.disabledLabel}
             </button>
           </div>
 
@@ -68,10 +73,10 @@ export default function DefinicoesPage() {
               <Bell className="w-5 h-5 text-amber-400 shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white">
-                  Notificações de Competições
+                  {dict.definicoes.notifTitle}
                 </p>
                 <p className="text-xs text-slate-400">
-                  Alertas quando novas salas oficiais forem disponibilizadas.
+                  {dict.definicoes.notifDesc}
                 </p>
               </div>
             </div>
@@ -83,7 +88,9 @@ export default function DefinicoesPage() {
                   : 'bg-white/10 text-slate-400'
               }`}
             >
-              {notificationsEnabled ? 'Ativas' : 'Desativadas'}
+              {notificationsEnabled
+                ? dict.definicoes.activePluralLabel
+                : dict.definicoes.disabledPluralLabel}
             </button>
           </div>
 
@@ -94,34 +101,55 @@ export default function DefinicoesPage() {
               className="min-h-[44px] px-6 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
             >
               <Check className="w-4 h-4 shrink-0" />
-              {saved ? 'Preferências Guardadas!' : 'Guardar Preferências'}
+              {saved
+                ? dict.definicoes.preferencesSaved
+                : dict.definicoes.savePreferences}
             </button>
 
             <button
-              onClick={() =>
-                speak(
-                  'Olá! Sou a examinadora virtual da Escola de Condução Live. Boa sorte na tua próxima competição!',
-                  true
-                )
-              }
+              onClick={() => speak(dict.definicoes.voiceTestSample, true)}
               className="min-h-[44px] px-5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold cursor-pointer text-center"
             >
-              {isSpeaking ? 'A reproduzir áudio...' : 'Testar Voz Portuguesa'}
+              {isSpeaking
+                ? dict.definicoes.speakingAudio
+                : dict.definicoes.testVoiceBtn}
             </button>
           </div>
+        </div>
+
+        {/* Dedicated link card to the single language page (/idiomas) */}
+        <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <Globe className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">
+                {dict.definicoes.languageCardTitle}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {tFormat(dict.definicoes.languageCardDesc, {
+                  name: meta.nativeName,
+                })}
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/idiomas"
+            className="min-h-[42px] px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shrink-0 whitespace-nowrap"
+          >
+            <Globe className="w-4 h-4 shrink-0" />
+            {dict.definicoes.openLanguagesBtn}
+          </Link>
         </div>
 
         <AccountSecurityCard />
 
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-6 space-y-3">
           <div className="flex items-center gap-2 text-white font-bold">
-            <HelpCircle className="w-5 h-5 text-red-500" />
-            <h3>Suporte ao Aluno</h3>
+            <HelpCircle className="w-5 h-5 text-red-500 shrink-0" />
+            <h3>{dict.definicoes.supportTitle}</h3>
           </div>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Para dúvidas sobre regras de trânsito em Angola, consulta a secção{' '}
-            <strong className="text-white">Regras de Trânsito</strong> onde a
-            Examinadora Virtual IA responde em tempo real.
+            {dict.definicoes.supportDesc}
           </p>
         </div>
       </div>

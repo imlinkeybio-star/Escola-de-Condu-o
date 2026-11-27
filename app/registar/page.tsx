@@ -4,13 +4,15 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, LogIn, UserPlus } from 'lucide-react';
+import { ArrowLeft, Globe, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { ANGOLA_PROVINCES } from '@/lib/types';
 
 export default function RegistarPage() {
   const router = useRouter();
   const { registerWithEmail, signInWithGoogle } = useAuth();
+  const { dict } = useLanguage();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,11 +26,11 @@ export default function RegistarPage() {
     e.preventDefault();
     setError('');
     if (displayName.trim().length < 2) {
-      setError('O nome de utilizador deve ter pelo menos 2 caracteres.');
+      setError(dict.auth.usernameTooShort);
       return;
     }
     if (password.length < 6) {
-      setError('A palavra-passe deve ter pelo menos 6 caracteres.');
+      setError(dict.auth.passwordMin6);
       return;
     }
     setLoading(true);
@@ -44,15 +46,11 @@ export default function RegistarPage() {
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
       if (code === 'auth/operation-not-allowed') {
-        setError(
-          'O registo por email/palavra-passe ainda não está ativado na Consola Firebase (Authentication > Sign-in method > Email/Password). Podes criar conta imediatamente clicando em "Registar com Google".'
-        );
+        setError(dict.auth.emailNotEnabledRegister);
       } else if (code === 'auth/email-already-in-use') {
-        setError('Este email já está registado. Tenta iniciar sessão.');
+        setError(dict.auth.emailInUse);
       } else {
-        setError(
-          err instanceof Error ? err.message : 'Erro ao criar conta.'
-        );
+        setError(err instanceof Error ? err.message : dict.auth.registerError);
       }
     } finally {
       setLoading(false);
@@ -67,7 +65,7 @@ export default function RegistarPage() {
       router.push('/dashboard');
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Erro ao registar com Google.'
+        err instanceof Error ? err.message : dict.auth.googleRegisterError
       );
     } finally {
       setLoading(false);
@@ -77,18 +75,27 @@ export default function RegistarPage() {
   return (
     <div className="min-h-screen bg-[#07090F] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-[#111520] border border-white/10 rounded-2xl p-6 sm:p-8 space-y-5">
-        <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </Link>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white"
+            >
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+              {dict.common.back}
+            </Link>
+            <Link
+              href="/idiomas"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/10"
+            >
+              <Globe className="w-3.5 h-3.5 text-sky-400" />
+              {dict.nav.idiomas}
+            </Link>
+          </div>
           <div className="bg-white/95 rounded-xl px-2.5 py-1 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
             <Image
               src="/assets/aistudio/favicon_14076ff5.png"
-              alt="Escola de Condução Live"
+              alt={dict.common.brandName}
               width={72}
               height={48}
               className="h-10 w-auto object-contain"
@@ -99,10 +106,10 @@ export default function RegistarPage() {
 
         <div className="space-y-1">
           <h1 className="font-display text-3xl font-extrabold text-white">
-            Criar Conta de Aluno
+            {dict.auth.createAccountTitle}
           </h1>
           <p className="text-sm text-slate-400">
-            Compete com alunos de todo o país e prepara-te para o exame oficial.
+            {dict.auth.createAccountSubtitle}
           </p>
         </div>
 
@@ -118,19 +125,19 @@ export default function RegistarPage() {
           className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
         >
           <LogIn className="w-4 h-4" />
-          Registar com Google
+          {dict.auth.registerWithGoogle}
         </button>
 
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <div className="h-px flex-1 bg-white/10" />
-          <span>ou com email</span>
+          <span>{dict.auth.orWithEmail}</span>
           <div className="h-px flex-1 bg-white/10" />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-300">
-              Nome de Utilizador
+              {dict.auth.usernameLabel}
             </label>
             <input
               type="text"
@@ -138,26 +145,28 @@ export default function RegistarPage() {
               maxLength={60}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Ex: Gilberto Spranger"
-              className="w-full min-h-[44px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-300">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="aluno@exemplo.ao"
+              placeholder={dict.auth.usernamePlaceholder}
               className="w-full min-h-[44px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-300">
-              Palavra-passe (mín. 6 caracteres)
+              {dict.auth.emailLabel}
+            </label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={dict.auth.emailPlaceholder}
+              className="w-full min-h-[44px] px-4 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-300">
+              {dict.auth.passwordMinLabel}
             </label>
             <input
               type="password"
@@ -173,20 +182,20 @@ export default function RegistarPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-300">
-                Escola de Condução
+                {dict.auth.drivingSchoolLabel}
               </label>
               <input
                 type="text"
                 maxLength={120}
                 value={drivingSchool}
                 onChange={(e) => setDrivingSchool(e.target.value)}
-                placeholder="Opcional"
+                placeholder={dict.auth.optionalPlaceholder}
                 className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
               />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-300">
-                Província
+                {dict.auth.provinceLabel}
               </label>
               <select
                 value={province}
@@ -208,17 +217,17 @@ export default function RegistarPage() {
             className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 cursor-pointer mt-2"
           >
             <UserPlus className="w-4 h-4" />
-            {loading ? 'A criar conta...' : 'Criar Conta'}
+            {loading ? dict.auth.creatingAccount : dict.auth.createAccountBtn}
           </button>
         </form>
 
         <p className="text-center text-xs text-slate-400">
-          Já tens conta?{' '}
+          {dict.auth.alreadyHaveAccount}{' '}
           <Link
             href="/entrar"
             className="text-red-400 hover:text-red-300 font-semibold"
           >
-            Iniciar Sessão
+            {dict.auth.signInLink}
           </Link>
         </p>
       </div>

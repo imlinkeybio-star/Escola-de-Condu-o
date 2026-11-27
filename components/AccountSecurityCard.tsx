@@ -29,6 +29,8 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
+import { useLanguage } from './LanguageProvider';
+import { tFormat } from '@/lib/i18n';
 import {
   deleteUserAccountData,
   factoryResetUserAccount,
@@ -38,6 +40,7 @@ import {
 export function AccountSecurityCard() {
   const router = useRouter();
   const { user, privateInfo, refreshProfile, markTotpVerified, logout } = useAuth();
+  const { dict } = useLanguage();
 
   // Password states
   const [currentPassword, setCurrentPassword] = useState('');
@@ -93,15 +96,15 @@ export function AccountSecurityCard() {
     setPwSuccess('');
 
     if (newPassword.length < 6) {
-      setPwError('A nova palavra-passe deve ter pelo menos 6 caracteres.');
+      setPwError(dict.security.pwMin6Err);
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPwError('A confirmação da palavra-passe não coincide.');
+      setPwError(dict.security.pwMismatchErr);
       return;
     }
     if (!user.email) {
-      setPwError('A tua conta não tem um email associado.');
+      setPwError(dict.security.noEmailErr);
       return;
     }
 
@@ -109,14 +112,14 @@ export function AccountSecurityCard() {
     try {
       if (hasPasswordProvider) {
         if (!currentPassword) {
-          setPwError('Insere a tua palavra-passe atual para confirmar.');
+          setPwError(dict.security.currentPwReqErr);
           setPwLoading(false);
           return;
         }
         const cred = EmailAuthProvider.credential(user.email, currentPassword);
         await reauthenticateWithCredential(user, cred);
         await updatePassword(user, newPassword);
-        setPwSuccess('Palavra-passe atualizada com sucesso!');
+        setPwSuccess(dict.security.pwUpdated);
       } else {
         const cred = EmailAuthProvider.credential(user.email, newPassword);
         try {
@@ -130,9 +133,7 @@ export function AccountSecurityCard() {
             throw err;
           }
         }
-        setPwSuccess(
-          'Palavra-passe definida! Agora também podes entrar com email e palavra-passe.'
-        );
+        setPwSuccess(dict.security.pwSetSuccess);
       }
       setCurrentPassword('');
       setNewPassword('');
@@ -143,19 +144,13 @@ export function AccountSecurityCard() {
         code === 'auth/wrong-password' ||
         code === 'auth/invalid-credential'
       ) {
-        setPwError('A palavra-passe atual está incorreta.');
+        setPwError(dict.security.wrongPwErr);
       } else if (code === 'auth/weak-password') {
-        setPwError('A nova palavra-passe é demasiado fraca (mínimo 6 caracteres).');
+        setPwError(dict.security.weakPwErr);
       } else if (code === 'auth/requires-recent-login') {
-        setPwError(
-          'Por segurança, termina a sessão e volta a entrar antes de alterar a palavra-passe.'
-        );
+        setPwError(dict.security.recentLoginErr);
       } else {
-        setPwError(
-          err instanceof Error
-            ? err.message
-            : 'Não foi possível alterar a palavra-passe.'
-        );
+        setPwError(err instanceof Error ? err.message : dict.security.genericPwErr);
       }
     } finally {
       setPwLoading(false);
@@ -166,20 +161,16 @@ export function AccountSecurityCard() {
     setResetErr('');
     setResetMsg('');
     if (!user.email) {
-      setResetErr('Nenhum email associado à conta.');
+      setResetErr(dict.security.noEmailErr);
       return;
     }
     setResetLoading(true);
     try {
       await sendPasswordResetEmail(auth, user.email);
-      setResetMsg(
-        `Enviámos um link de redefinição de palavra-passe para ${user.email}.`
-      );
+      setResetMsg(tFormat(dict.security.resetSentMsg, { email: user.email }));
     } catch (err) {
       setResetErr(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível enviar o email de redefinição.'
+        err instanceof Error ? err.message : dict.security.resetErrMsg
       );
     } finally {
       setResetLoading(false);
@@ -203,18 +194,14 @@ export function AccountSecurityCard() {
         error?: string;
       };
       if (!res.ok || !data.qrDataUrl || !data.pendingSealedSecret) {
-        throw new Error(
-          data.error || 'Erro ao gerar QR Code do Google Authenticator.'
-        );
+        throw new Error(data.error || dict.security.otpQrErr);
       }
       setQrDataUrl(data.qrDataUrl);
       setManualKey(data.manualKey || '');
       setPendingSealedSecret(data.pendingSealedSecret);
       setOtpInput('');
     } catch (err) {
-      setTotpError(
-        err instanceof Error ? err.message : 'Erro ao iniciar 2FA.'
-      );
+      setTotpError(err instanceof Error ? err.message : dict.security.otpStartErr);
     } finally {
       setSetupLoading(false);
     }
@@ -245,7 +232,7 @@ export function AccountSecurityCard() {
         error?: string;
       };
       if (!res.ok || !data.verified || !data.sealedTotpSecret) {
-        throw new Error(data.error || 'Código OTP inválido.');
+        throw new Error(data.error || dict.security.otpInvalidErr);
       }
 
       await updateUserProfileDetails(user.uid, {
@@ -258,14 +245,10 @@ export function AccountSecurityCard() {
       setManualKey('');
       setPendingSealedSecret('');
       setOtpInput('');
-      setTotpSuccess(
-        'Autenticação em 2 Fatores (Google Authenticator) ativada com sucesso!'
-      );
+      setTotpSuccess(dict.security.otpEnabledSuccess);
     } catch (err) {
       setTotpError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível validar o código OTP.'
+        err instanceof Error ? err.message : dict.otpGate.verifyError
       );
     } finally {
       setTotpBusy(false);
@@ -297,7 +280,7 @@ export function AccountSecurityCard() {
         error?: string;
       };
       if (!res.ok || !data.verified) {
-        throw new Error(data.error || 'Código OTP inválido.');
+        throw new Error(data.error || dict.security.otpInvalidErr);
       }
 
       await updateUserProfileDetails(user.uid, {
@@ -307,12 +290,10 @@ export function AccountSecurityCard() {
       markTotpVerified(false);
       await refreshProfile();
       setDisableOtpInput('');
-      setTotpSuccess('Google Authenticator desativado.');
+      setTotpSuccess(dict.security.otpDisabledSuccess);
     } catch (err) {
       setTotpError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível desativar o Google Authenticator.'
+        err instanceof Error ? err.message : dict.security.otpDisableErr
       );
     } finally {
       setTotpBusy(false);
@@ -335,8 +316,10 @@ export function AccountSecurityCard() {
     if (!user) return;
     setFactoryError('');
     setFactorySuccess('');
-    if (resetConfirmText.trim().toUpperCase() !== 'ZERAR') {
-      setFactoryError('Escreve ZERAR para confirmar a reposição de fábrica.');
+    const normalizedInput = resetConfirmText.trim().toUpperCase();
+    const expectedWord = dict.security.factoryWord.trim().toUpperCase();
+    if (normalizedInput !== expectedWord && normalizedInput !== 'ZERAR') {
+      setFactoryError(dict.security.factoryMismatchErr);
       return;
     }
     setFactoryBusy(true);
@@ -345,14 +328,10 @@ export function AccountSecurityCard() {
       await refreshProfile();
       setResetConfirmText('');
       setResetPanelOpen(false);
-      setFactorySuccess(
-        'Conta reposta como nova de fábrica! Todos os pontos, jogos, conquistas, histórico e notificações foram zerados.'
-      );
+      setFactorySuccess(dict.security.factorySuccessMsg);
     } catch (err) {
       setFactoryError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível repor a conta neste momento.'
+        err instanceof Error ? err.message : dict.security.factoryErrMsg
       );
     } finally {
       setFactoryBusy(false);
@@ -363,10 +342,10 @@ export function AccountSecurityCard() {
     e.preventDefault();
     if (!user) return;
     setDeleteError('');
-    if (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') {
-      setDeleteError(
-        'Escreve ELIMINAR para confirmar a eliminação permanente da conta.'
-      );
+    const normalizedInput = deleteConfirmText.trim().toUpperCase();
+    const expectedWord = dict.security.deleteWord.trim().toUpperCase();
+    if (normalizedInput !== expectedWord && normalizedInput !== 'ELIMINAR') {
+      setDeleteError(dict.security.deleteMismatchErr);
       return;
     }
 
@@ -382,9 +361,7 @@ export function AccountSecurityCard() {
       } else if (hasGoogle) {
         await reauthenticateWithPopup(user, googleProvider);
       } else if (hasPasswordProvider) {
-        setDeleteError(
-          'Insere a tua palavra-passe atual para confirmar a eliminação.'
-        );
+        setDeleteError(dict.security.deletePwRequired);
         setDeleteBusy(false);
         return;
       }
@@ -399,18 +376,14 @@ export function AccountSecurityCard() {
         code === 'auth/wrong-password' ||
         code === 'auth/invalid-credential'
       ) {
-        setDeleteError('A palavra-passe atual está incorreta.');
+        setDeleteError(dict.security.wrongPwErr);
       } else if (code === 'auth/requires-recent-login') {
-        setDeleteError(
-          'Por segurança, termina a sessão e volta a entrar antes de eliminar a conta.'
-        );
+        setDeleteError(dict.security.deleteRecentLogin);
       } else if (code === 'auth/popup-closed-by-user') {
-        setDeleteError('Confirmação cancelada na janela do Google.');
+        setDeleteError(dict.security.deleteGoogleCancelled);
       } else {
         setDeleteError(
-          err instanceof Error
-            ? err.message
-            : 'Não foi possível eliminar a conta.'
+          err instanceof Error ? err.message : dict.security.deleteErrMsg
         );
       }
     } finally {
@@ -428,13 +401,13 @@ export function AccountSecurityCard() {
             <div className="min-w-0">
               <h3 className="text-base font-bold text-white">
                 {hasPasswordProvider
-                  ? 'Editar Palavra-Passe'
-                  : 'Definir Palavra-Passe'}
+                  ? dict.security.editPwTitle
+                  : dict.security.setPwTitle}
               </h3>
               <p className="text-xs text-slate-400">
                 {hasPasswordProvider
-                  ? 'Atualiza a tua palavra-passe de acesso com segurança.'
-                  : 'Entraste com Google — define uma palavra-passe para também acederes por email.'}
+                  ? dict.security.editPwDesc
+                  : dict.security.setPwDesc}
               </p>
             </div>
           </div>
@@ -442,7 +415,7 @@ export function AccountSecurityCard() {
             href="/entrar?reset=1"
             className="text-xs font-semibold text-red-400 hover:text-red-300 whitespace-nowrap"
           >
-            Página de Reset
+            {dict.security.resetPageLink}
           </Link>
         </div>
 
@@ -461,7 +434,7 @@ export function AccountSecurityCard() {
           {hasPasswordProvider && (
             <div>
               <label className="text-xs text-slate-300 font-medium">
-                Palavra-passe atual
+                {dict.security.currentPwLabel}
               </label>
               <input
                 type="password"
@@ -477,7 +450,7 @@ export function AccountSecurityCard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-slate-300 font-medium">
-                Nova palavra-passe
+                {dict.security.newPwLabel}
               </label>
               <input
                 type="password"
@@ -485,13 +458,13 @@ export function AccountSecurityCard() {
                 minLength={6}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
+                placeholder={dict.security.min6Placeholder}
                 className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white mt-1 focus:outline-none focus:border-red-500"
               />
             </div>
             <div>
               <label className="text-xs text-slate-300 font-medium">
-                Confirmar nova palavra-passe
+                {dict.security.confirmPwLabel}
               </label>
               <input
                 type="password"
@@ -499,7 +472,7 @@ export function AccountSecurityCard() {
                 minLength={6}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Repete a nova palavra-passe"
+                placeholder={dict.security.repeatPwPlaceholder}
                 className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white mt-1 focus:outline-none focus:border-red-500"
               />
             </div>
@@ -513,10 +486,10 @@ export function AccountSecurityCard() {
             >
               <Lock className="w-4 h-4 shrink-0" />
               {pwLoading
-                ? 'A guardar...'
+                ? dict.common.saving
                 : hasPasswordProvider
-                  ? 'Atualizar Palavra-Passe'
-                  : 'Definir Palavra-Passe'}
+                  ? dict.security.updatePwBtn
+                  : dict.security.setPwBtn}
             </button>
 
             <button
@@ -527,8 +500,8 @@ export function AccountSecurityCard() {
             >
               <Mail className="w-4 h-4 shrink-0 text-amber-400" />
               {resetLoading
-                ? 'A enviar...'
-                : 'Enviar Email de Reset de Password'}
+                ? dict.security.sendingBtn
+                : dict.security.sendResetBtn}
             </button>
           </div>
         </form>
@@ -552,11 +525,9 @@ export function AccountSecurityCard() {
             <Smartphone className="w-5 h-5 text-emerald-400 shrink-0" />
             <div className="min-w-0">
               <h3 className="text-base font-bold text-white">
-                OTP via Google Authenticator (2FA)
+                {dict.security.otpTitle}
               </h3>
-              <p className="text-xs text-slate-400">
-                Protege a tua conta com códigos temporários de 6 dígitos (TOTP).
-              </p>
+              <p className="text-xs text-slate-400">{dict.security.otpDesc}</p>
             </div>
           </div>
 
@@ -568,12 +539,12 @@ export function AccountSecurityCard() {
             {isTotpEnabled ? (
               <>
                 <ShieldCheck className="w-4 h-4" />
-                Ativo
+                {dict.security.activeBadge}
               </>
             ) : (
               <>
                 <ShieldAlert className="w-4 h-4" />
-                Inativo
+                {dict.security.inactiveBadge}
               </>
             )}
           </span>
@@ -596,9 +567,7 @@ export function AccountSecurityCard() {
             className="bg-[#090C14] border border-white/10 rounded-xl p-4 space-y-3"
           >
             <p className="text-xs text-slate-300 leading-relaxed">
-              O Google Authenticator está ativo. Sempre que iniciares sessão num
-              novo navegador, será pedido o código OTP de 6 dígitos. Para
-              desativar, confirma com o código atual da aplicação:
+              {dict.security.otpActiveDesc}
             </p>
             <div className="flex flex-col sm:flex-row gap-2.5">
               <input
@@ -611,7 +580,7 @@ export function AccountSecurityCard() {
                 onChange={(e) =>
                   setDisableOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))
                 }
-                placeholder="Código OTP (6 dígitos)"
+                placeholder={dict.security.otpPlaceholder}
                 className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm font-mono-tabular tracking-widest text-white focus:outline-none focus:border-red-500"
               />
               <button
@@ -619,7 +588,9 @@ export function AccountSecurityCard() {
                 disabled={totpBusy || disableOtpInput.length !== 6}
                 className="min-h-[42px] px-4 rounded-xl bg-red-600/25 hover:bg-red-600/40 border border-red-500/40 disabled:opacity-50 text-red-200 text-xs font-bold cursor-pointer whitespace-nowrap"
               >
-                {totpBusy ? 'A validar...' : 'Desativar 2FA'}
+                {totpBusy
+                  ? dict.security.validatingBtn
+                  : dict.security.disable2faBtn}
               </button>
             </div>
           </form>
@@ -632,8 +603,8 @@ export function AccountSecurityCard() {
           >
             <QrCode className="w-4 h-4 shrink-0" />
             {setupLoading
-              ? 'A gerar código QR...'
-              : 'Configurar Google Authenticator'}
+              ? dict.security.generatingQrBtn
+              : dict.security.setup2faBtn}
           </button>
         ) : (
           <form
@@ -644,21 +615,19 @@ export function AccountSecurityCard() {
               <div className="bg-white p-2 rounded-xl shrink-0">
                 <Image
                   src={qrDataUrl}
-                  alt="Código QR Google Authenticator"
+                  alt={dict.security.otpTitle}
                   width={168}
                   height={168}
                   className="w-40 h-40 object-contain"
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <div className="space-y-2.5 flex-1 min-w-0 text-left">
+              <div className="space-y-2.5 flex-1 min-w-0 text-start">
                 <p className="text-xs font-bold text-white">
-                  1. Lê o QR Code no Google Authenticator
+                  {dict.security.step1Title}
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Abre a app Google Authenticator no teu telemóvel, toca em
-                  &ldquo;+&rdquo; e lê este código QR (ou copia a chave manual
-                  abaixo).
+                  {dict.security.step1Desc}
                 </p>
                 {manualKey && (
                   <div className="flex items-center gap-2 bg-[#111520] border border-white/10 rounded-lg px-2.5 py-2 min-w-0">
@@ -675,7 +644,9 @@ export function AccountSecurityCard() {
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
-                      {copiedKey ? 'Copiado' : 'Copiar'}
+                      {copiedKey
+                        ? dict.security.copiedLabel
+                        : dict.security.copyLabel}
                     </button>
                   </div>
                 )}
@@ -684,7 +655,7 @@ export function AccountSecurityCard() {
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-white block">
-                2. Insere o código de 6 dígitos gerado pela app
+                {dict.security.step2Title}
               </label>
               <div className="flex flex-col sm:flex-row gap-2.5">
                 <input
@@ -705,7 +676,9 @@ export function AccountSecurityCard() {
                   disabled={totpBusy || otpInput.length !== 6}
                   className="min-h-[44px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold cursor-pointer whitespace-nowrap"
                 >
-                  {totpBusy ? 'A verificar...' : 'Confirmar e Ativar'}
+                  {totpBusy
+                    ? dict.otpGate.verifyingBtn
+                    : dict.security.confirmActivateBtn}
                 </button>
               </div>
             </div>
@@ -719,12 +692,9 @@ export function AccountSecurityCard() {
           <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
           <div className="min-w-0">
             <h3 className="text-base font-bold text-white">
-              Repor ou Eliminar Conta
+              {dict.security.dangerTitle}
             </h3>
-            <p className="text-xs text-slate-400">
-              Podes zerar todos os teus dados do 0 como conta nova de fábrica ou
-              eliminar permanentemente a tua conta.
-            </p>
+            <p className="text-xs text-slate-400">{dict.security.dangerDesc}</p>
           </div>
         </div>
 
@@ -749,11 +719,10 @@ export function AccountSecurityCard() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-bold text-white">
-                Repor Conta como Nova de Fábrica (Zerar Tudo do 0)
+                {dict.security.factoryTitle}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Apaga todo o histórico, pontos, vitórias, sequência, conquistas,
-                rankings e notificações, mantendo o teu acesso atual.
+                {dict.security.factoryDesc}
               </p>
             </div>
             <button
@@ -766,7 +735,7 @@ export function AccountSecurityCard() {
               className="min-h-[40px] px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
             >
               <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-              {resetPanelOpen ? 'Cancelar' : 'Repor de Fábrica'}
+              {resetPanelOpen ? dict.common.cancel : dict.security.factoryBtn}
             </button>
           </div>
 
@@ -776,8 +745,9 @@ export function AccountSecurityCard() {
               className="pt-3 border-t border-white/[0.08] space-y-3"
             >
               <label className="block text-xs text-slate-300">
-                Escreve <strong className="text-amber-300">ZERAR</strong> para
-                confirmar que queres reiniciar a conta do zero:
+                {tFormat(dict.security.factoryPrompt, {
+                  word: dict.security.factoryWord,
+                })}
               </label>
               <div className="flex flex-col sm:flex-row gap-2.5">
                 <input
@@ -785,7 +755,7 @@ export function AccountSecurityCard() {
                   required
                   value={resetConfirmText}
                   onChange={(e) => setResetConfirmText(e.target.value)}
-                  placeholder="ZERAR"
+                  placeholder={dict.security.factoryWord}
                   className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-amber-500"
                 />
                 <button
@@ -793,7 +763,9 @@ export function AccountSecurityCard() {
                   disabled={factoryBusy}
                   className="min-h-[42px] px-4 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
                 >
-                  {factoryBusy ? 'A zerar...' : 'Confirmar Reposição Total'}
+                  {factoryBusy
+                    ? dict.security.factoryBusyBtn
+                    : dict.security.factoryConfirmBtn}
                 </button>
               </div>
             </form>
@@ -805,11 +777,10 @@ export function AccountSecurityCard() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-bold text-red-300">
-                Eliminar Conta Permanentemente
+                {dict.security.deleteTitle}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Remove definitivamente o teu perfil, credenciais, histórico,
-                conquistas e classificações da plataforma.
+                {dict.security.deleteDesc}
               </p>
             </div>
             <button
@@ -822,7 +793,7 @@ export function AccountSecurityCard() {
               className="min-h-[40px] px-4 rounded-xl bg-red-600/25 hover:bg-red-600/40 border border-red-500/40 text-red-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
             >
               <Trash2 className="w-3.5 h-3.5 shrink-0" />
-              {deletePanelOpen ? 'Cancelar' : 'Eliminar Minha Conta'}
+              {deletePanelOpen ? dict.common.cancel : dict.security.deleteBtn}
             </button>
           </div>
 
@@ -834,7 +805,7 @@ export function AccountSecurityCard() {
               {hasPasswordProvider && (
                 <div>
                   <label className="block text-xs text-slate-300 mb-1">
-                    Palavra-passe atual (verificação de segurança):
+                    {dict.security.deletePwLabel}
                   </label>
                   <input
                     type="password"
@@ -849,8 +820,9 @@ export function AccountSecurityCard() {
 
               <div>
                 <label className="block text-xs text-slate-300 mb-1">
-                  Escreve <strong className="text-red-400">ELIMINAR</strong> para
-                  apagar permanentemente a tua conta:
+                  {tFormat(dict.security.deletePrompt, {
+                    word: dict.security.deleteWord,
+                  })}
                 </label>
                 <div className="flex flex-col sm:flex-row gap-2.5">
                   <input
@@ -858,7 +830,7 @@ export function AccountSecurityCard() {
                     required
                     value={deleteConfirmText}
                     onChange={(e) => setDeleteConfirmText(e.target.value)}
-                    placeholder="ELIMINAR"
+                    placeholder={dict.security.deleteWord}
                     className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-red-500"
                   />
                   <button
@@ -867,8 +839,8 @@ export function AccountSecurityCard() {
                     className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
                   >
                     {deleteBusy
-                      ? 'A eliminar...'
-                      : 'Confirmar Eliminação Permanente'}
+                      ? dict.security.deleteBusyBtn
+                      : dict.security.deleteConfirmBtn}
                   </button>
                 </div>
               </div>

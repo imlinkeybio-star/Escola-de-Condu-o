@@ -12,12 +12,14 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { useLanguage } from '@/components/LanguageProvider';
 import { AppShell } from '@/components/AppShell';
 import {
   LiveAnswerBreakdownBar,
   LiveTrendSvgChart,
 } from '@/components/LivePerformanceCharts';
 import { UserResult } from '@/lib/types';
+import { formatNumberLocale, tFormat } from '@/lib/i18n';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -32,6 +34,7 @@ function toMillis(ts: unknown): number {
 
 export default function EstatisticasPage() {
   const { user, profile } = useAuth();
+  const { language, dict } = useLanguage();
   const [results, setResults] = useState<UserResult[]>([]);
 
   useEffect(() => {
@@ -68,33 +71,33 @@ export default function EstatisticasPage() {
     gamesPlayed > 0 ? Math.round(totalPoints / gamesPlayed) : 0;
 
   return (
-    <AppShell title="Estatísticas Pessoais">
+    <AppShell title={dict.stats.guestTitle}>
       <div className="space-y-6 min-w-0">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-2 min-w-0">
             <Target className="w-5 h-5 text-emerald-400" />
-            <p className="text-xs text-slate-400">Taxa de Acerto Global</p>
+            <p className="text-xs text-slate-400">{dict.dashboard.accuracyRate}</p>
             <p className="font-mono-tabular text-2xl sm:text-3xl font-extrabold text-white">
               {accuracy}%
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-2 min-w-0">
             <Trophy className="w-5 h-5 text-amber-400" />
-            <p className="text-xs text-slate-400">Taxa de Vitórias</p>
+            <p className="text-xs text-slate-400">{dict.stats.winRate}</p>
             <p className="font-mono-tabular text-2xl sm:text-3xl font-extrabold text-amber-400">
               {winRate}%
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-2 min-w-0">
             <CheckCircle2 className="w-5 h-5 text-sky-400" />
-            <p className="text-xs text-slate-400">Média por Concurso</p>
+            <p className="text-xs text-slate-400">{dict.stats.avgPerQuiz}</p>
             <p className="font-mono-tabular text-2xl sm:text-3xl font-extrabold text-white">
-              {avgScore} pts
+              {formatNumberLocale(language, avgScore)} {dict.common.pts}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-2 min-w-0">
             <Flame className="w-5 h-5 text-red-500" />
-            <p className="text-xs text-slate-400">Melhor Sequência</p>
+            <p className="text-xs text-slate-400">{dict.stats.bestStreak}</p>
             <p className="font-mono-tabular text-2xl sm:text-3xl font-extrabold text-red-400">
               {profile?.bestStreak ?? 0}
             </p>
@@ -105,10 +108,13 @@ export default function EstatisticasPage() {
         <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-5 sm:p-6 space-y-4 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-bold text-white">
-              Distribuição Real de Respostas (Atualização ao Vivo)
+              {dict.stats.realDistributionTitle}
             </h3>
             <span className="font-mono-tabular text-xs text-amber-400 font-bold">
-              {totalPoints} pts totais · {gamesPlayed} jogos
+              {tFormat(dict.stats.totalPtsGames, {
+                pts: formatNumberLocale(language, totalPoints),
+                games: gamesPlayed,
+              })}
             </span>
           </div>
           <LiveAnswerBreakdownBar
@@ -123,11 +129,11 @@ export default function EstatisticasPage() {
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-red-500 shrink-0" />
               <h3 className="text-base font-bold text-white">
-                Gráfico de Evolução de Pontos & Precisão
+                {dict.stats.evolutionChartTitle}
               </h3>
             </div>
             <span className="text-xs text-slate-400 font-mono-tabular">
-              {results.length} competições registadas
+              {tFormat(dict.stats.registeredCompetitions, { count: results.length })}
             </span>
           </div>
 
@@ -139,7 +145,7 @@ export default function EstatisticasPage() {
                 href="/salas"
                 className="inline-block px-5 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold"
               >
-                Participar Agora
+                {dict.stats.participateNow}
               </Link>
             </div>
           ) : (
@@ -151,7 +157,7 @@ export default function EstatisticasPage() {
                       {r.roomTitle}
                     </span>
                     <span className="font-mono-tabular text-slate-300 shrink-0">
-                      {r.accuracy}% · {r.score} pts ({r.rank}.º)
+                      {r.accuracy}% · {formatNumberLocale(language, r.score)} {dict.common.pts} (#{r.rank})
                     </span>
                   </div>
                   <div className="h-2.5 rounded-full bg-[#1B2234] overflow-hidden">

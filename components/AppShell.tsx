@@ -11,6 +11,7 @@ import {
   BookOpen,
   CheckCheck,
   ExternalLink,
+  Globe,
   History,
   Home,
   KeyRound,
@@ -36,6 +37,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
+import { useLanguage } from './LanguageProvider';
+import { translateTier } from '@/lib/i18n';
 import { BroadcastItem, NotificationItem } from '@/lib/types';
 import { AdBroadcastBanner } from './AdBroadcastBanner';
 import {
@@ -82,6 +85,7 @@ export function AppShell({
     markTotpVerified,
     logout,
   } = useAuth();
+  const { language, dict, fmt } = useLanguage();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -199,45 +203,46 @@ export function AppShell({
   };
 
   const navItems = [
-    { href: '/dashboard', label: 'Início', icon: Home },
-    { href: '/salas', label: 'Salas ao Vivo', icon: Radio },
-    { href: '/ranking', label: 'Ranking', icon: Trophy },
-    { href: '/utilizadores', label: 'Utilizadores & Prêmios', icon: Users },
-    { href: '/estatisticas', label: 'Estatísticas', icon: BarChart3 },
-    { href: '/historico', label: 'Histórico', icon: History },
-    { href: '/notificacoes', label: 'Notificações', icon: Bell },
-    { href: '/conquistas', label: 'Conquistas', icon: Award },
-    { href: '/regras', label: 'Regras de Trânsito', icon: BookOpen },
-    { href: '/perfil', label: 'Meu Perfil', icon: User },
-    { href: '/definicoes', label: 'Definições', icon: Settings },
+    { href: '/dashboard', label: dict.nav.home, icon: Home },
+    { href: '/salas', label: dict.nav.salas, icon: Radio },
+    { href: '/ranking', label: dict.nav.ranking, icon: Trophy },
+    { href: '/utilizadores', label: dict.nav.utilizadores, icon: Users },
+    { href: '/estatisticas', label: dict.nav.estatisticas, icon: BarChart3 },
+    { href: '/historico', label: dict.nav.historico, icon: History },
+    { href: '/notificacoes', label: dict.nav.notificacoes, icon: Bell },
+    { href: '/conquistas', label: dict.nav.conquistas, icon: Award },
+    { href: '/regras', label: dict.nav.regras, icon: BookOpen },
+    { href: '/perfil', label: dict.nav.perfil, icon: User },
+    { href: '/definicoes', label: dict.nav.definicoes, icon: Settings },
+    { href: '/idiomas', label: dict.nav.idiomas, icon: Globe },
   ];
 
   if (isOwner || canAnnounce) {
     navItems.push({
       href: '/dono-anuncios',
-      label: isOwner ? 'Anúncios & Notif. (Dono)' : 'Anúncios & Notif.',
+      label: isOwner ? dict.nav.donoAnunciosOwner : dict.nav.donoAnuncios,
       icon: Megaphone,
     });
   }
 
   if (isOwner || isAdmin || canViewReserved) {
-    navItems.push({ href: '/admin', label: 'Administração', icon: Shield });
+    navItems.push({ href: '/admin', label: dict.nav.admin, icon: Shield });
   }
 
   if (isOwner) {
     navItems.push({
       href: '/permissoes',
-      label: 'Permissões & Equipa',
+      label: dict.nav.permissoes,
       icon: KeyRound,
     });
   }
 
   const mobileTabs = [
-    { href: '/dashboard', label: 'Início', icon: Home },
-    { href: '/salas', label: 'Salas', icon: Radio },
-    { href: '/ranking', label: 'Ranking', icon: Trophy },
-    { href: '/estatisticas', label: 'Estatísticas', icon: BarChart3 },
-    { href: '/perfil', label: 'Perfil', icon: User },
+    { href: '/dashboard', label: dict.nav.home, icon: Home },
+    { href: '/salas', label: dict.nav.salasShort, icon: Radio },
+    { href: '/ranking', label: dict.nav.rankingShort, icon: Trophy },
+    { href: '/estatisticas', label: dict.nav.estatisticasShort, icon: BarChart3 },
+    { href: '/perfil', label: dict.nav.perfilShort, icon: User },
   ];
 
   const handleLogout = async () => {
@@ -269,15 +274,13 @@ export function AppShell({
         error?: string;
       };
       if (!res.ok || !data.verified) {
-        throw new Error(data.error || 'Código OTP inválido.');
+        throw new Error(data.error || dict.otpGate.invalidCode);
       }
       setOtpCode('');
       markTotpVerified(true);
     } catch (err) {
       setOtpError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível validar o código OTP.'
+        err instanceof Error ? err.message : dict.otpGate.verifyError
       );
     } finally {
       setOtpSubmitting(false);
@@ -287,13 +290,13 @@ export function AppShell({
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-clip bg-[#07090F] text-slate-100 flex">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#0D101A] border-r border-white/[0.08] z-30">
+      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:start-0 bg-[#0D101A] border-e border-white/[0.08] z-30">
         <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.08]">
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
             <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 shrink-0 flex items-center justify-center">
               <Image
                 src="/assets/aistudio/favicon_14076ff5.png"
-                alt="Escola de Condução Live"
+                alt={dict.common.brandName}
                 width={54}
                 height={36}
                 className="h-8 w-auto object-contain"
@@ -302,10 +305,10 @@ export function AppShell({
             </div>
             <div className="min-w-0">
               <span className="font-display text-base font-extrabold tracking-wide text-white block leading-none whitespace-nowrap truncate">
-                ESCOLA DE CONDUÇÃO
+                {dict.common.brandShort}
               </span>
               <span className="text-[10px] font-bold tracking-widest text-red-500 uppercase">
-                LIVE ANGOLA
+                {dict.common.liveAngola}
               </span>
             </div>
           </Link>
@@ -343,7 +346,7 @@ export function AppShell({
               <div className="relative w-9 h-9 rounded-full overflow-hidden border border-white/15 shrink-0">
                 <Image
                   src={profile?.photoURL || defaultAvatarImg}
-                  alt={profile?.displayName || 'Condutor'}
+                  alt={profile?.displayName || dict.common.driverDefault}
                   fill
                   sizes="36px"
                   className="object-cover"
@@ -352,10 +355,11 @@ export function AppShell({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-white truncate">
-                  {profile?.displayName || user.displayName || 'Aluno'}
+                  {profile?.displayName || user.displayName || dict.common.studentDefault}
                 </p>
                 <p className="text-xs text-amber-400 font-mono-tabular truncate">
-                  {profile?.totalPoints ?? 0} pts · {profile?.tier || 'Aprendiz'}
+                  {profile?.totalPoints ?? 0} {dict.common.pts} ·{' '}
+                  {translateTier(language, profile?.tier || 'Aprendiz')}
                 </p>
               </div>
             </Link>
@@ -364,26 +368,26 @@ export function AppShell({
               className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors cursor-pointer whitespace-nowrap"
             >
               <LogOut className="w-3.5 h-3.5" />
-              Terminar Sessão
+              {dict.common.logout}
             </button>
           </div>
         )}
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0 max-w-full pt-14 lg:pt-16">
+      <div className="flex-1 lg:ps-64 flex flex-col min-w-0 max-w-full pt-14 lg:pt-16">
         {/* Fixed Top Bar on Scroll (56px mobile, 64px desktop) */}
-        <header className="fixed top-0 left-0 right-0 lg:left-64 z-30 h-14 lg:h-16 bg-[#07090F]/95 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+        <header className="fixed top-0 inset-x-0 lg:start-64 z-30 h-14 lg:h-16 bg-[#07090F]/95 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 lg:px-8 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               onClick={() => setDrawerOpen(true)}
-              aria-label="Abrir menu"
+              aria-label={dict.nav.openMenu}
               className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-300 hover:bg-white/[0.06] cursor-pointer shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
             <h1 className="text-sm sm:text-base lg:text-lg font-bold text-white truncate">
-              {title || 'Escola de Condução Live'}
+              {title || dict.common.brandName}
             </h1>
           </div>
 
@@ -399,12 +403,12 @@ export function AppShell({
                         void markAllRead();
                       }
                     }}
-                    aria-label="Notificações"
+                    aria-label={dict.nav.notificacoes}
                     className="min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.06] relative cursor-pointer"
                   >
                     <Bell className="w-5 h-5" />
                     {totalAlertBadge > 0 && (
-                      <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-[10px] font-bold text-white flex items-center justify-center tabular-nums">
+                      <span className="absolute top-1.5 end-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-[10px] font-bold text-white flex items-center justify-center tabular-nums">
                         {totalAlertBadge > 9 ? '9+' : totalAlertBadge}
                       </span>
                     )}
@@ -415,10 +419,10 @@ export function AppShell({
                         className="fixed inset-0 z-40"
                         onClick={() => setNotifOpen(false)}
                       />
-                      <div className="fixed left-3 right-3 top-[60px] sm:left-auto sm:right-6 sm:top-[68px] sm:w-[24rem] max-h-[min(32rem,calc(100dvh-5rem))] flex flex-col overflow-hidden bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
+                      <div className="fixed start-3 end-3 top-[60px] sm:start-auto sm:end-6 sm:top-[68px] sm:w-[24rem] max-h-[min(32rem,calc(100dvh-5rem))] flex flex-col overflow-hidden bg-[#121622] border border-white/10 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
                         <div className="flex items-center justify-between gap-2 px-1 pb-2 border-b border-white/[0.08] shrink-0">
                           <span className="text-xs font-semibold text-white truncate">
-                            Notificações & Avisos
+                            {dict.notifications.dropdownHeader}
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {(visibleBroadcasts.length > 0 ||
@@ -427,11 +431,11 @@ export function AppShell({
                                 type="button"
                                 onClick={() => void handleClearAllNotifications()}
                                 disabled={clearingNotifs}
-                                title="Limpar todas as notificações"
+                                title={dict.notifications.dropdownClearTitle}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-red-600/25 text-[11px] font-semibold text-slate-300 hover:text-red-200 cursor-pointer whitespace-nowrap"
                               >
                                 <Trash2 className="w-3 h-3" />
-                                Limpar
+                                {dict.notifications.dropdownClear}
                               </button>
                             )}
                             <Link
@@ -439,12 +443,12 @@ export function AppShell({
                               onClick={() => setNotifOpen(false)}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-400 hover:text-red-300 whitespace-nowrap"
                             >
-                              Ver todas
+                              {dict.notifications.dropdownSeeAll}
                             </Link>
                             <button
                               type="button"
                               onClick={() => setNotifOpen(false)}
-                              aria-label="Fechar notificações"
+                              aria-label={dict.notifications.dropdownCloseAria}
                               className="text-slate-400 hover:text-white p-1 cursor-pointer"
                             >
                               <X className="w-4 h-4" />
@@ -457,11 +461,11 @@ export function AppShell({
                           <div className="py-6 text-center space-y-1.5">
                             <CheckCheck className="w-6 h-6 text-emerald-400 mx-auto" />
                             <p className="text-xs text-slate-400">
-                              Sem notificações pendentes.
+                              {dict.notifications.dropdownEmpty}
                             </p>
                           </div>
                         ) : (
-                          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
+                          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pe-0.5">
                             {visibleBroadcasts.slice(0, 5).map((b) => {
                               const safeLink = sanitizeSafeUrl(b.linkUrl);
                               return (
@@ -482,7 +486,7 @@ export function AppShell({
                                         onClick={() => setNotifOpen(false)}
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
                                       >
-                                        {b.linkLabel || 'Abrir'}
+                                        {b.linkLabel || dict.common.open}
                                         <ExternalLink className="w-3 h-3" />
                                       </Link>
                                     ) : (
@@ -492,7 +496,7 @@ export function AppShell({
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:underline pt-0.5"
                                       >
-                                        {b.linkLabel || 'Abrir Link'}
+                                        {b.linkLabel || dict.common.openLink}
                                         <ExternalLink className="w-3 h-3" />
                                       </a>
                                     ))}
@@ -526,7 +530,7 @@ export function AppShell({
                                         onClick={() => setNotifOpen(false)}
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
                                       >
-                                        {n.linkLabel || 'Abrir'}
+                                        {n.linkLabel || dict.common.open}
                                         <ExternalLink className="w-3 h-3" />
                                       </Link>
                                     ) : (
@@ -536,7 +540,7 @@ export function AppShell({
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400 hover:underline"
                                       >
-                                        {n.linkLabel || 'Abrir Link'}
+                                        {n.linkLabel || dict.common.openLink}
                                         <ExternalLink className="w-3 h-3" />
                                       </a>
                                     ))}
@@ -555,7 +559,7 @@ export function AppShell({
                   className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
                 >
                   <Radio className="w-3.5 h-3.5" />
-                  Entrar em Sala
+                  {dict.nav.enterRoom}
                 </Link>
 
                 <Link
@@ -564,7 +568,7 @@ export function AppShell({
                 >
                   <Image
                     src={profile?.photoURL || defaultAvatarImg}
-                    alt={profile?.displayName || 'Perfil'}
+                    alt={profile?.displayName || dict.nav.perfilShort}
                     fill
                     sizes="36px"
                     className="object-cover"
@@ -577,7 +581,7 @@ export function AppShell({
                 href="/entrar"
                 className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               >
-                Entrar
+                {dict.common.enter}
               </Link>
             )}
           </div>
@@ -598,7 +602,7 @@ export function AppShell({
             <div className="max-w-md mx-auto bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-3 my-8">
               <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto animate-pulse" />
               <p className="text-sm font-semibold text-white">
-                A verificar sessão de segurança 2FA...
+                {dict.otpGate.verifying2fa}
               </p>
             </div>
           ) : user && totpRequired ? (
@@ -608,12 +612,10 @@ export function AppShell({
                   <KeyRound className="w-6 h-6" />
                 </div>
                 <h2 className="text-xl font-bold text-white">
-                  Verificação Google Authenticator
+                  {dict.otpGate.title}
                 </h2>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  A tua conta ({user.email}) está protegida com OTP. Insere o
-                  código de 6 dígitos da app Google Authenticator para
-                  continuar.
+                  {fmt(dict.otpGate.desc, { email: user.email || '' })}
                 </p>
               </div>
 
@@ -643,7 +645,7 @@ export function AppShell({
                   disabled={otpSubmitting || otpCode.length !== 6}
                   className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold cursor-pointer"
                 >
-                  {otpSubmitting ? 'A verificar...' : 'Confirmar Código OTP'}
+                  {otpSubmitting ? dict.otpGate.verifyingBtn : dict.otpGate.confirmBtn}
                 </button>
               </form>
 
@@ -653,7 +655,7 @@ export function AppShell({
                 className="w-full min-h-[42px] rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
-                Terminar Sessão
+                {dict.common.logout}
               </button>
             </div>
           ) : (
@@ -669,13 +671,13 @@ export function AppShell({
             className="fixed inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => setDrawerOpen(false)}
           />
-          <div className="relative w-72 max-w-[85vw] bg-[#0D101A] border-r border-white/10 h-full flex flex-col z-10 p-4">
+          <div className="relative w-72 max-w-[85vw] bg-[#0D101A] border-e border-white/10 h-full flex flex-col z-10 p-4">
             <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center shrink-0">
                   <Image
                     src="/assets/aistudio/favicon_14076ff5.png"
-                    alt="Escola de Condução Live"
+                    alt={dict.common.brandName}
                     width={54}
                     height={36}
                     className="h-8 w-auto object-contain"
@@ -683,7 +685,7 @@ export function AppShell({
                   />
                 </div>
                 <span className="font-display text-base font-bold text-white truncate">
-                  ESCOLA DE CONDUÇÃO
+                  {dict.common.brandShort}
                 </span>
               </div>
               <button
@@ -720,7 +722,7 @@ export function AppShell({
                 className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/10 text-sm font-medium text-slate-300 hover:bg-white/[0.05] cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
-                Terminar Sessão
+                {dict.common.logout}
               </button>
             )}
           </div>

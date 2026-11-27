@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { UserResult } from '@/lib/types';
+import { useLanguage } from './LanguageProvider';
+import { tFormat } from '@/lib/i18n';
 
 export function LiveTrendSvgChart({
   results,
@@ -10,6 +12,7 @@ export function LiveTrendSvgChart({
   results: UserResult[];
   height?: number;
 }) {
+  const { dict } = useLanguage();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   // Display chronological oldest -> newest (left -> right), up to last 12 games
   const series = [...results].slice(0, 12).reverse();
@@ -17,8 +20,7 @@ export function LiveTrendSvgChart({
   if (series.length === 0) {
     return (
       <div className="rounded-xl bg-[#0B0E17] border border-white/[0.06] p-6 text-center text-xs text-slate-400">
-        Joga uma competição para veres a evolução real da tua pontuação e taxa
-        de acerto aqui em tempo real.
+        {dict.stats.chartEmpty}
       </div>
     );
   }
@@ -64,22 +66,24 @@ export function LiveTrendSvgChart({
         </span>
         <div className="flex items-center gap-3 font-mono-tabular shrink-0">
           <span className="text-amber-400 font-bold">
-            {selected.item.score} pts
+            {selected.item.score} {dict.common.pts}
           </span>
           <span className="text-emerald-400 font-bold">
-            {selected.item.accuracy}% acerto
+            {tFormat(dict.stats.chartHitsLabel, { acc: selected.item.accuracy })}
           </span>
-          <span className="text-slate-400">{selected.item.rank}.º lugar</span>
+          <span className="text-slate-400">
+            {tFormat(dict.stats.chartPlaceSuffix, { rank: selected.item.rank })}
+          </span>
         </div>
       </div>
 
       {/* Responsive SVG Chart */}
-      <div className="w-full overflow-hidden">
+      <div dir="ltr" className="w-full overflow-hidden">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-auto select-none"
           role="img"
-          aria-label="Gráfico em tempo real de pontuação e precisão"
+          aria-label={dict.stats.chartAria}
         >
           <defs>
             <linearGradient id="accAreaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -175,7 +179,7 @@ export function LiveTrendSvgChart({
                   fontSize="9"
                   fontFamily="monospace"
                 >
-                  J{p.index + 1}
+                  #{p.index + 1}
                 </text>
               </g>
             );
@@ -188,14 +192,14 @@ export function LiveTrendSvgChart({
         <div className="flex items-center gap-4">
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />
-            Pontuação (pts)
+            {dict.stats.chartPointsLegend}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
-            Precisão (%)
+            {dict.stats.chartAccuracyLegend}
           </span>
         </div>
-        <span>Toca numa barra para ver detalhes</span>
+        <span>{dict.stats.chartTapHint}</span>
       </div>
     </div>
   );
@@ -208,6 +212,7 @@ export function LiveAnswerBreakdownBar({
   correctAnswers: number;
   totalAnswers: number;
 }) {
+  const { dict } = useLanguage();
   const wrongAnswers = Math.max(0, totalAnswers - correctAnswers);
   const correctPct =
     totalAnswers > 0 ? Math.round((correctAnswers / totalAnswers) * 100) : 0;
@@ -217,10 +222,16 @@ export function LiveAnswerBreakdownBar({
     <div className="space-y-2.5">
       <div className="flex items-center justify-between text-xs">
         <span className="text-emerald-400 font-semibold font-mono-tabular">
-          {correctAnswers} Certas ({correctPct}%)
+          {tFormat(dict.stats.breakdownCorrect, {
+            count: correctAnswers,
+            pct: correctPct,
+          })}
         </span>
         <span className="text-red-400 font-semibold font-mono-tabular">
-          {wrongAnswers} Erradas ({wrongPct}%)
+          {tFormat(dict.stats.breakdownWrong, {
+            count: wrongAnswers,
+            pct: wrongPct,
+          })}
         </span>
       </div>
       <div className="h-3.5 w-full rounded-full bg-[#1B2234] overflow-hidden flex">
@@ -240,7 +251,7 @@ export function LiveAnswerBreakdownBar({
         )}
       </div>
       <p className="text-[11px] text-slate-400 font-mono-tabular">
-        Total de respostas registadas em tempo real: {totalAnswers}
+        {tFormat(dict.stats.breakdownTotal, { total: totalAnswers })}
       </p>
     </div>
   );

@@ -12,6 +12,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PlatformUsersStats, UserProfile } from '@/lib/types';
+import { useLanguage } from './LanguageProvider';
+import { formatNumberLocale, tFormat } from '@/lib/i18n';
 
 const GOAL_USERS = 5_000_000;
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
@@ -27,11 +29,8 @@ function toMillis(ts: unknown): number {
   return 0;
 }
 
-function formatNumber(n: number): string {
-  return n.toLocaleString('pt-AO');
-}
-
 export function PlatformUsersTracker() {
+  const { dict, language } = useLanguage();
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
   const [deletedCount, setDeletedCount] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -102,6 +101,8 @@ export function PlatformUsersTracker() {
     };
   }, [registeredUsers, deletedCount, nowMs]);
 
+  const fmt = (n: number) => formatNumberLocale(language, n);
+
   // Visual bar widths toward 5M goal (ensure small non-zero counts stay clearly visible)
   const totalForScale =
     stats.registeredCount + stats.deletedCount + stats.remainingCount || GOAL_USERS;
@@ -128,7 +129,7 @@ export function PlatformUsersTracker() {
   const rows = [
     {
       key: 'registered' as const,
-      label: 'Users Registados',
+      label: dict.tracker.registeredUsers,
       count: stats.registeredCount,
       color: '#22C55E',
       pctOfBase: (stats.registeredCount / GOAL_USERS) * 100,
@@ -136,7 +137,7 @@ export function PlatformUsersTracker() {
     },
     {
       key: 'offline' as const,
-      label: 'Offline há +3 dias',
+      label: dict.tracker.offline3d,
       count: stats.offline3DaysCount,
       color: '#64748B',
       pctOfBase:
@@ -147,7 +148,7 @@ export function PlatformUsersTracker() {
     },
     {
       key: 'deleted' as const,
-      label: 'Contas Eliminadas',
+      label: dict.tracker.deletedAccounts,
       count: stats.deletedCount,
       color: '#EF4444',
       pctOfBase: (stats.deletedCount / communityTotal) * 100,
@@ -155,7 +156,7 @@ export function PlatformUsersTracker() {
     },
     {
       key: 'remaining' as const,
-      label: 'Faltam para 5M',
+      label: dict.tracker.remaining5m,
       count: stats.remainingCount,
       color: '#F97316',
       pctOfBase: (stats.remainingCount / GOAL_USERS) * 100,
@@ -167,7 +168,7 @@ export function PlatformUsersTracker() {
 
   return (
     <section
-      aria-label="Progresso de Utilizadores até a Meta de 5 Milhões"
+      aria-label={dict.tracker.ariaLabel}
       className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4 sm:p-6 space-y-5 min-w-0"
     >
       {/* Header */}
@@ -178,29 +179,30 @@ export function PlatformUsersTracker() {
           </div>
           <div className="min-w-0">
             <h3 className="text-base font-bold text-white truncate">
-              Crescimento da Comunidade (Meta: 5M Utilizadores)
+              {dict.tracker.title}
             </h3>
             <p className="text-xs text-slate-400 truncate">
-              Dados reais atualizados em tempo real a cada novo registo ou
-              atividade
+              {dict.tracker.subtitle}
             </p>
           </div>
         </div>
 
         <div className="flex flex-col sm:items-end gap-1.5 font-mono-tabular shrink-0">
-          <div className="text-left sm:text-right">
+          <div className="text-start sm:text-end">
             <p className="text-sm font-extrabold text-emerald-400">
-              {formatNumber(stats.registeredCount)} / 5.000.000
+              {fmt(stats.registeredCount)} / {fmt(GOAL_USERS)}
             </p>
             <p className="text-[11px] text-slate-400">
-              {stats.goalPct.toFixed(4)}% da meta alcançada
+              {tFormat(dict.tracker.metaReached, {
+                pct: stats.goalPct.toFixed(4),
+              })}
             </p>
           </div>
           <Link
             href="/utilizadores"
             className="inline-flex items-center gap-1 text-xs font-sans font-semibold text-slate-300 hover:text-white transition-colors whitespace-nowrap"
           >
-            Ver utilizadores & prêmios
+            {dict.tracker.viewUsersPrizes}
             <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
           </Link>
         </div>
@@ -211,15 +213,15 @@ export function PlatformUsersTracker() {
         <div className="h-5 w-full rounded-xl bg-[#090C14] border border-white/10 overflow-hidden flex p-0.5 gap-0.5">
           {regBarPct > 0 && (
             <div
-              title={`Users Registados: ${formatNumber(stats.registeredCount)}`}
+              title={`${dict.tracker.registeredUsers}: ${fmt(stats.registeredCount)}`}
               onClick={() => setActiveSegment('registered')}
-              className="h-full rounded-l-lg bg-[#22C55E] transition-all duration-700 cursor-pointer"
+              className="h-full rounded-s-lg bg-[#22C55E] transition-all duration-700 cursor-pointer"
               style={{ width: `${regBarPct}%` }}
             />
           )}
           {offlineBarPct > 0 && (
             <div
-              title={`Offline há +3 dias: ${formatNumber(stats.offline3DaysCount)}`}
+              title={`${dict.tracker.offline3d}: ${fmt(stats.offline3DaysCount)}`}
               onClick={() => setActiveSegment('offline')}
               className="h-full bg-[#64748B] transition-all duration-700 cursor-pointer"
               style={{ width: `${offlineBarPct}%` }}
@@ -227,16 +229,16 @@ export function PlatformUsersTracker() {
           )}
           {delBarPct > 0 && (
             <div
-              title={`Contas Eliminadas: ${formatNumber(stats.deletedCount)}`}
+              title={`${dict.tracker.deletedAccounts}: ${fmt(stats.deletedCount)}`}
               onClick={() => setActiveSegment('deleted')}
               className="h-full bg-[#EF4444] transition-all duration-700 cursor-pointer"
               style={{ width: `${delBarPct}%` }}
             />
           )}
           <div
-            title={`Faltam para 5M: ${formatNumber(stats.remainingCount)}`}
+            title={`${dict.tracker.remaining5m}: ${fmt(stats.remainingCount)}`}
             onClick={() => setActiveSegment('remaining')}
-            className="h-full rounded-r-lg bg-[#F97316] transition-all duration-700 cursor-pointer flex-1"
+            className="h-full rounded-e-lg bg-[#F97316] transition-all duration-700 cursor-pointer flex-1"
             style={{ width: `${remBarPct}%` }}
           />
         </div>
@@ -246,7 +248,7 @@ export function PlatformUsersTracker() {
           <span>1.25M</span>
           <span>2.5M</span>
           <span>3.75M</span>
-          <span className="text-orange-400 font-bold">5M Meta</span>
+          <span className="text-orange-400 font-bold">{dict.tracker.meta5m}</span>
         </div>
       </div>
 
@@ -261,16 +263,17 @@ export function PlatformUsersTracker() {
               className="font-mono-tabular font-bold shrink-0"
               style={{ color: activeItem.color }}
             >
-              {formatNumber(activeItem.count)}
+              {fmt(activeItem.count)}
             </span>
           </div>
 
-          <svg
-            viewBox={`0 0 ${svgWidth} 124`}
-            className="w-full h-auto select-none"
-            role="img"
-            aria-label="Gráfico em tempo real de utilizadores registados, offline, eliminados e meta 5M"
-          >
+          <div dir="ltr">
+            <svg
+              viewBox={`0 0 ${svgWidth} 124`}
+              className="w-full h-auto select-none"
+              role="img"
+              aria-label={dict.tracker.chartAria}
+            >
             {rows.map((row, idx) => {
               const y = 8 + idx * 29;
               const trackW = 240;
@@ -321,12 +324,13 @@ export function PlatformUsersTracker() {
                     fontWeight="700"
                     fontFamily="monospace"
                   >
-                    {formatNumber(row.count)}
+                    {fmt(row.count)}
                   </text>
                 </g>
               );
             })}
-          </svg>
+            </svg>
+          </div>
         </div>
 
         {/* 4 Exact Color Legend Cards */}
@@ -334,52 +338,54 @@ export function PlatformUsersTracker() {
           <div className="bg-[#0B0E17] border border-emerald-500/25 rounded-xl p-3 min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
               <span className="w-2.5 h-2.5 rounded-sm bg-[#22C55E] shrink-0" />
-              <span className="truncate">Registados</span>
+              <span className="truncate">{dict.tracker.registeredCard}</span>
             </div>
             <p className="font-mono-tabular text-lg font-extrabold text-[#22C55E] mt-1 truncate">
-              {formatNumber(stats.registeredCount)}
+              {fmt(stats.registeredCount)}
             </p>
             <p className="text-[10px] text-slate-400 truncate">
-              {formatNumber(stats.activeRecentCount)} ativos recentes
+              {tFormat(dict.tracker.activeRecent, {
+                count: fmt(stats.activeRecentCount),
+              })}
             </p>
           </div>
 
           <div className="bg-[#0B0E17] border border-orange-500/25 rounded-xl p-3 min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
               <span className="w-2.5 h-2.5 rounded-sm bg-[#F97316] shrink-0" />
-              <span className="truncate">Faltam (5M)</span>
+              <span className="truncate">{dict.tracker.remainingCard}</span>
             </div>
             <p className="font-mono-tabular text-lg font-extrabold text-[#F97316] mt-1 truncate">
-              {formatNumber(stats.remainingCount)}
+              {fmt(stats.remainingCount)}
             </p>
             <p className="text-[10px] text-slate-400 truncate">
-              Até atingir 5.000.000
+              {dict.tracker.upTo5m}
             </p>
           </div>
 
           <div className="bg-[#0B0E17] border border-red-500/25 rounded-xl p-3 min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
               <span className="w-2.5 h-2.5 rounded-sm bg-[#EF4444] shrink-0" />
-              <span className="truncate">Eliminadas</span>
+              <span className="truncate">{dict.tracker.deletedCard}</span>
             </div>
             <p className="font-mono-tabular text-lg font-extrabold text-[#EF4444] mt-1 truncate">
-              {formatNumber(stats.deletedCount)}
+              {fmt(stats.deletedCount)}
             </p>
             <p className="text-[10px] text-slate-400 truncate">
-              Contas removidas
+              {dict.tracker.removedAccounts}
             </p>
           </div>
 
           <div className="bg-[#0B0E17] border border-slate-500/25 rounded-xl p-3 min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
               <span className="w-2.5 h-2.5 rounded-sm bg-[#64748B] shrink-0" />
-              <span className="truncate">Offline +3 dias</span>
+              <span className="truncate">{dict.tracker.offlineCard}</span>
             </div>
             <p className="font-mono-tabular text-lg font-extrabold text-slate-300 mt-1 truncate">
-              {formatNumber(stats.offline3DaysCount)}
+              {fmt(stats.offline3DaysCount)}
             </p>
             <p className="text-[10px] text-slate-400 truncate">
-              Sem atividade há 72h+
+              {dict.tracker.noActivity72h}
             </p>
           </div>
         </div>

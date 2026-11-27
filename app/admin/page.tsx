@@ -39,10 +39,21 @@ import {
   toggleUserDisabledStatus,
 } from '@/lib/firestore-service';
 import { SIGN_LABELS } from '@/components/TrafficSignDisplay';
+import { useLanguage } from '@/components/LanguageProvider';
+import {
+  formatNumberLocale,
+  tFormat,
+  translateCategory,
+  translateDifficulty,
+  translateRoomStatus,
+  translateSignLabel,
+} from '@/lib/i18n';
+import { APP_OWNER_EMAIL } from '@/lib/url-safety';
 
 export default function AdminPage() {
   const { user, profile, isAdmin, isOwner, canViewReserved, canAnnounce, loading } =
     useAuth();
+  const { language, dict } = useLanguage();
   const [tab, setTab] = useState<'salas' | 'utilizadores' | 'perguntas' | 'auditoria'>('salas');
   const [rooms, setRooms] = useState<CompetitionRoom[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
@@ -50,7 +61,7 @@ export default function AdminPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Quick Admin Room Creation
-  const [roomTitle, setRoomTitle] = useState('Campeonato Nacional Código de Estrada');
+  const [roomTitle, setRoomTitle] = useState('');
   const [roomCategory, setRoomCategory] = useState('Geral');
   const [roomDiff, setRoomDiff] = useState<DifficultyLevel>('Exame Oficial');
   const [creatingRoom, setCreatingRoom] = useState(false);
@@ -63,7 +74,7 @@ export default function AdminPage() {
   const [optD, setOptD] = useState('');
   const [correctIdx, setCorrectIdx] = useState(0);
   const [explanation, setExplanation] = useState('');
-  const [legalRef, setLegalRef] = useState('Código de Estrada de Angola');
+  const [legalRef, setLegalRef] = useState('');
   const [signType, setSignType] = useState('none');
   const [statusMsg, setStatusMsg] = useState('');
   const [confirmDeleteRoom, setConfirmDeleteRoom] =
@@ -111,19 +122,18 @@ export default function AdminPage() {
 
   if (!loading && !canAccessAdminPage) {
     return (
-      <AppShell title="Administração">
+      <AppShell title={dict.nav.admin}>
         <div className="bg-[#111520] border border-red-500/30 rounded-2xl p-8 text-center space-y-3">
           <Shield className="w-10 h-10 text-red-500 mx-auto" />
-          <h2 className="text-xl font-bold text-white">Acesso Restrito</h2>
+          <h2 className="text-xl font-bold text-white">{dict.admin.restrictedTitle}</h2>
           <p className="text-sm text-slate-400">
-            Esta tela reservada aparece apenas para o proprietário
-            (kordelmauvesp@gmail.com) e emails autorizados.
+            {tFormat(dict.admin.restrictedDesc, { owner: APP_OWNER_EMAIL })}
           </p>
           <Link
             href="/dashboard"
             className="inline-block px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-semibold"
           >
-            Voltar ao Dashboard
+            {dict.permissoes.backDashboard}
           </Link>
         </div>
       </AppShell>
@@ -137,7 +147,7 @@ export default function AdminPage() {
     setStatusMsg('');
     try {
       const created = await createCompetitionRoom({
-        title: roomTitle,
+        title: roomTitle.trim() || dict.admin.defaultRoomTitle,
         maxParticipants: 200,
         totalQuestions: 10,
         timePerQuestion: 60,
@@ -147,9 +157,15 @@ export default function AdminPage() {
         hostProfile: profile,
         isAdminUser: true,
       });
-      setStatusMsg(`Sala "${created.title}" (${created.code}) criada com sucesso!`);
+      setStatusMsg(
+        tFormat(dict.admin.roomCreatedMsg, {
+          title: created.title,
+          code: created.code,
+        })
+      );
+      setRoomTitle('');
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Erro ao criar sala.');
+      setStatusMsg(err instanceof Error ? err.message : dict.admin.roomCreateErr);
     } finally {
       setCreatingRoom(false);
     }
@@ -164,7 +180,7 @@ export default function AdminPage() {
         options: [optA, optB, optC, optD],
         correctIndex: correctIdx,
         explanation,
-        legalReference: legalRef,
+        legalReference: legalRef.trim() || dict.admin.defaultLegalRef,
         category: roomCategory,
         difficulty: roomDiff,
         signType,
@@ -176,9 +192,9 @@ export default function AdminPage() {
       setOptC('');
       setOptD('');
       setExplanation('');
-      setStatusMsg('Pergunta adicionada ao banco oficial e registada na auditoria.');
+      setStatusMsg(dict.admin.questionAddedMsg);
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Erro ao guardar pergunta.');
+      setStatusMsg(err instanceof Error ? err.message : dict.admin.questionSaveErr);
     }
   };
 
@@ -188,11 +204,13 @@ export default function AdminPage() {
     setStatusMsg('');
     try {
       await deleteCompetitionRoom(confirmDeleteRoom.roomId, true);
-      setStatusMsg(`Sala "${confirmDeleteRoom.title}" eliminada com sucesso.`);
+      setStatusMsg(
+        tFormat(dict.admin.roomDeletedMsg, { title: confirmDeleteRoom.title })
+      );
       setConfirmDeleteRoom(null);
     } catch (err) {
       setStatusMsg(
-        err instanceof Error ? err.message : 'Erro ao eliminar sala.'
+        err instanceof Error ? err.message : dict.admin.roomDeleteErr
       );
     } finally {
       setDeletingRoomId(null);
@@ -200,32 +218,32 @@ export default function AdminPage() {
   };
 
   return (
-    <AppShell title="Painel Administrativo">
+    <AppShell title={dict.admin.shellTitle}>
       <div className="space-y-6">
         {/* Admin KPI Overview */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4">
-            <p className="text-xs text-slate-400">Salas Registadas</p>
+            <p className="text-xs text-slate-400">{dict.admin.roomsCount}</p>
             <p className="font-mono-tabular text-2xl font-bold text-white mt-1">
-              {rooms.length}
+              {formatNumberLocale(language, rooms.length)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4">
-            <p className="text-xs text-slate-400">Utilizadores</p>
+            <p className="text-xs text-slate-400">{dict.admin.usersCount}</p>
             <p className="font-mono-tabular text-2xl font-bold text-white mt-1">
-              {usersList.length}
+              {formatNumberLocale(language, usersList.length)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4">
-            <p className="text-xs text-slate-400">Banco de Perguntas</p>
+            <p className="text-xs text-slate-400">{dict.admin.questionBankCount}</p>
             <p className="font-mono-tabular text-2xl font-bold text-amber-400 mt-1">
-              {bankItems.length}
+              {formatNumberLocale(language, bankItems.length)}
             </p>
           </div>
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-4">
-            <p className="text-xs text-slate-400">Registos de Auditoria</p>
+            <p className="text-xs text-slate-400">{dict.admin.auditLogsCount}</p>
             <p className="font-mono-tabular text-2xl font-bold text-emerald-400 mt-1">
-              {auditLogs.length}
+              {formatNumberLocale(language, auditLogs.length)}
             </p>
           </div>
         </div>
@@ -239,9 +257,8 @@ export default function AdminPage() {
         {/* Read-Only Banner for View-Only Staff */}
         {!canMutateAdmin && canAccessAdminPage && (
           <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-4 text-xs sm:text-sm text-sky-200">
-            <strong>Modo de Visualização:</strong> o teu email tem permissão para
-            consultar estas telas reservadas, mas não para alterar ou eliminar
-            registos.
+            <strong>{dict.admin.viewOnlyBannerTitle}</strong>{' '}
+            {dict.admin.viewOnlyBannerDesc}
           </div>
         )}
 
@@ -250,12 +267,12 @@ export default function AdminPage() {
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                {isOwner ? 'Controlo Exclusivo do Dono' : 'Permissão de Anúncios'}
+                {isOwner ? dict.admin.ownerControlLabel : dict.admin.adPermLabel}
               </p>
               <p className="text-sm font-semibold text-white">
                 {isOwner
-                  ? 'Gerir Emails Permitidos, Notificações IA e Anúncios'
-                  : 'Gerir Notificações IA, Links e Anúncios (10s / 15min)'}
+                  ? dict.admin.ownerShortcutTitle
+                  : dict.admin.staffShortcutTitle}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 shrink-0">
@@ -264,14 +281,14 @@ export default function AdminPage() {
                   href="/permissoes"
                   className="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/20 text-white text-xs font-bold text-center whitespace-nowrap"
                 >
-                  Emails & Permissões
+                  {dict.donoAnuncios.emailsPermBtn}
                 </Link>
               )}
               <Link
                 href="/dono-anuncios"
                 className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold text-center whitespace-nowrap"
               >
-                Abrir Painel de Anúncios
+                {dict.admin.openAdsPanelBtn}
               </Link>
             </div>
           </div>
@@ -281,10 +298,10 @@ export default function AdminPage() {
         <div className="flex flex-wrap gap-1.5 p-1 bg-[#111520] border border-white/[0.08] rounded-xl w-fit max-w-full">
           {(
             [
-              { id: 'salas', label: 'Competições & Salas' },
-              { id: 'utilizadores', label: 'Utilizadores' },
-              { id: 'perguntas', label: 'Banco de Perguntas' },
-              { id: 'auditoria', label: 'Auditoria Imutável' },
+              { id: 'salas', label: dict.admin.tabRooms },
+              { id: 'utilizadores', label: dict.admin.tabUsers },
+              { id: 'perguntas', label: dict.admin.tabQuestions },
+              { id: 'auditoria', label: dict.admin.tabAudit },
             ] as const
           ).map((t) => (
             <button
@@ -310,13 +327,13 @@ export default function AdminPage() {
               >
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <PlusCircle className="w-4 h-4 text-red-500" />
-                Criar Concurso Oficial
+                {dict.admin.createOfficialRoom}
               </h3>
               <input
                 type="text"
-                required
                 value={roomTitle}
                 onChange={(e) => setRoomTitle(e.target.value)}
+                placeholder={dict.admin.defaultRoomTitle}
                 className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
               />
               <div className="grid grid-cols-2 gap-3">
@@ -327,7 +344,7 @@ export default function AdminPage() {
                 >
                   {QUESTION_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {translateCategory(language, c)}
                     </option>
                   ))}
                 </select>
@@ -338,10 +355,18 @@ export default function AdminPage() {
                   }
                   className="min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 >
-                  <option value="Iniciante">Iniciante</option>
-                  <option value="Intermédio">Intermédio</option>
-                  <option value="Avançado">Avançado</option>
-                  <option value="Exame Oficial">Exame Oficial</option>
+                  <option value="Iniciante">
+                    {translateDifficulty(language, 'Iniciante')}
+                  </option>
+                  <option value="Intermédio">
+                    {translateDifficulty(language, 'Intermédio')}
+                  </option>
+                  <option value="Avançado">
+                    {translateDifficulty(language, 'Avançado')}
+                  </option>
+                  <option value="Exame Oficial">
+                    {translateDifficulty(language, 'Exame Oficial')}
+                  </option>
                 </select>
               </div>
               <button
@@ -350,8 +375,8 @@ export default function AdminPage() {
                 className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold cursor-pointer"
               >
                 {creatingRoom
-                  ? 'A criar sala...'
-                  : 'Disponibilizar Sala'}
+                  ? dict.admin.creatingRoom
+                  : dict.admin.makeRoomAvailable}
               </button>
             </form>
             )}
@@ -371,8 +396,12 @@ export default function AdminPage() {
                       {r.title}
                     </p>
                     <p className="text-xs text-slate-400">
-                      Código {r.code} · {r.status} · {r.participantCount} alunos ·{' '}
-                      {r.finishedCount ?? 0}/100 finalistas
+                      {tFormat(dict.admin.roomMeta, {
+                        code: r.code,
+                        status: translateRoomStatus(language, r.status),
+                        participants: r.participantCount,
+                        fin: r.finishedCount ?? 0,
+                      })}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -380,17 +409,17 @@ export default function AdminPage() {
                       href={`/sala/${r.roomId}`}
                       className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold text-white"
                     >
-                      Abrir
+                      {dict.admin.openRoom}
                     </Link>
                     {canMutateAdmin && (
                       <button
                         type="button"
                         onClick={() => setConfirmDeleteRoom(r)}
-                        aria-label={`Eliminar sala ${r.title}`}
+                        aria-label={`${dict.admin.deleteRoom} ${r.title}`}
                         className="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/35 text-xs font-semibold text-red-300 inline-flex items-center gap-1 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        Eliminar
+                        {dict.admin.deleteRoom}
                       </button>
                     )}
                   </div>
@@ -413,14 +442,17 @@ export default function AdminPage() {
                     <p className="text-sm font-bold text-white truncate">
                       {u.displayName}{' '}
                       {u.disabled && (
-                        <span className="text-xs text-red-400 ml-2">
-                          (Desativado)
+                        <span className="text-xs text-red-400 ms-2">
+                          {dict.admin.disabledTag}
                         </span>
                       )}
                     </p>
                     <p className="text-xs text-slate-400 font-mono-tabular">
-                      {u.totalPoints} pts · {u.wins} vitórias · {u.gamesPlayed}{' '}
-                      jogos
+                      {tFormat(dict.admin.userStatsMeta, {
+                        pts: formatNumberLocale(language, u.totalPoints),
+                        wins: formatNumberLocale(language, u.wins),
+                        games: formatNumberLocale(language, u.gamesPlayed),
+                      })}
                     </p>
                   </div>
                 </div>
@@ -438,12 +470,12 @@ export default function AdminPage() {
                   {u.disabled ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      Reativar
+                      {dict.admin.reactivateUser}
                     </>
                   ) : (
                     <>
                       <Ban className="w-3.5 h-3.5" />
-                      Desativar
+                      {dict.admin.disableUser}
                     </>
                   )}
                 </button>
@@ -462,14 +494,14 @@ export default function AdminPage() {
             >
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <BookPlus className="w-4 h-4 text-red-500" />
-                Adicionar Pergunta Oficial
+                {dict.admin.addQuestionTitle}
               </h3>
               <textarea
                 required
                 rows={2}
                 value={qText}
                 onChange={(e) => setQText(e.target.value)}
-                placeholder="Enunciado da pergunta..."
+                placeholder={dict.admin.questionPromptPlaceholder}
                 className="w-full p-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
               />
               <div className="grid grid-cols-2 gap-2">
@@ -477,28 +509,28 @@ export default function AdminPage() {
                   required
                   value={optA}
                   onChange={(e) => setOptA(e.target.value)}
-                  placeholder="Opção A"
+                  placeholder={tFormat(dict.admin.optPlaceholder, { letter: 'A' })}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
                 <input
                   required
                   value={optB}
                   onChange={(e) => setOptB(e.target.value)}
-                  placeholder="Opção B"
+                  placeholder={tFormat(dict.admin.optPlaceholder, { letter: 'B' })}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
                 <input
                   required
                   value={optC}
                   onChange={(e) => setOptC(e.target.value)}
-                  placeholder="Opção C"
+                  placeholder={tFormat(dict.admin.optPlaceholder, { letter: 'C' })}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
                 <input
                   required
                   value={optD}
                   onChange={(e) => setOptD(e.target.value)}
-                  placeholder="Opção D"
+                  placeholder={tFormat(dict.admin.optPlaceholder, { letter: 'D' })}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 />
               </div>
@@ -508,20 +540,28 @@ export default function AdminPage() {
                   onChange={(e) => setCorrectIdx(Number(e.target.value))}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 >
-                  <option value={0}>Correta: A</option>
-                  <option value={1}>Correta: B</option>
-                  <option value={2}>Correta: C</option>
-                  <option value={3}>Correta: D</option>
+                  <option value={0}>
+                    {tFormat(dict.admin.correctOptionPrefix, { letter: 'A' })}
+                  </option>
+                  <option value={1}>
+                    {tFormat(dict.admin.correctOptionPrefix, { letter: 'B' })}
+                  </option>
+                  <option value={2}>
+                    {tFormat(dict.admin.correctOptionPrefix, { letter: 'C' })}
+                  </option>
+                  <option value={3}>
+                    {tFormat(dict.admin.correctOptionPrefix, { letter: 'D' })}
+                  </option>
                 </select>
                 <select
                   value={signType}
                   onChange={(e) => setSignType(e.target.value)}
                   className="px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
                 >
-                  <option value="none">Sem Sinal Visual</option>
-                  {Object.entries(SIGN_LABELS).map(([k, v]) => (
+                  <option value="none">{dict.admin.noVisualSign}</option>
+                  {Object.keys(SIGN_LABELS).map((k) => (
                     <option key={k} value={k}>
-                      {v}
+                      {translateSignLabel(language, k)}
                     </option>
                   ))}
                 </select>
@@ -531,21 +571,20 @@ export default function AdminPage() {
                 rows={2}
                 value={explanation}
                 onChange={(e) => setExplanation(e.target.value)}
-                placeholder="Explicação pedagógica..."
+                placeholder={dict.admin.explanationPlaceholder}
                 className="w-full p-3 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
               />
               <input
-                required
                 value={legalRef}
                 onChange={(e) => setLegalRef(e.target.value)}
-                placeholder="Referência legal verificável"
+                placeholder={dict.admin.legalRefPlaceholder}
                 className="w-full px-3 py-2 rounded-xl bg-[#090C14] border border-white/15 text-xs text-white"
               />
               <button
                 type="submit"
                 className="w-full min-h-[42px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer"
               >
-                Guardar no Banco Oficial
+                {dict.admin.saveQuestionBtn}
               </button>
             </form>
             )}
@@ -557,8 +596,7 @@ export default function AdminPage() {
             >
               {bankItems.length === 0 ? (
                 <p className="p-6 text-xs text-slate-400 text-center">
-                  Sem perguntas manuais no banco. As salas geram perguntas
-                  dinamicamente via IA Gemini.
+                  {dict.admin.emptyQuestions}
                 </p>
               ) : (
                 bankItems.map((item) => (
@@ -567,7 +605,7 @@ export default function AdminPage() {
                       {item.questionText}
                     </p>
                     <p className="text-xs text-slate-400">
-                      {item.category} · {item.legalReference}
+                      {translateCategory(language, item.category)} · {item.legalReference}
                     </p>
                   </div>
                 ))
@@ -580,7 +618,7 @@ export default function AdminPage() {
           <div className="bg-[#111520] border border-white/[0.08] rounded-2xl divide-y divide-white/[0.06]">
             {auditLogs.length === 0 ? (
               <p className="p-6 text-xs text-slate-400 text-center">
-                Sem registos de auditoria até ao momento.
+                {dict.admin.emptyAudit}
               </p>
             ) : (
               auditLogs.map((log) => (
@@ -610,7 +648,7 @@ export default function AdminPage() {
                     <Trash2 className="w-4 h-4" />
                   </div>
                   <h3 className="text-base font-bold text-white">
-                    Eliminar Sala
+                    {dict.admin.deleteModalTitle}
                   </h3>
                 </div>
                 <button
@@ -622,9 +660,10 @@ export default function AdminPage() {
                 </button>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed break-words">
-                Confirmas a eliminação permanente da sala{' '}
-                <strong className="text-white">{confirmDeleteRoom.title}</strong>{' '}
-                ({confirmDeleteRoom.code})?
+                {tFormat(dict.admin.deleteModalBody, {
+                  title: confirmDeleteRoom.title,
+                  code: confirmDeleteRoom.code,
+                })}
               </p>
               <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-1">
                 <button
@@ -633,7 +672,7 @@ export default function AdminPage() {
                   disabled={Boolean(deletingRoomId)}
                   className="min-h-[42px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-white cursor-pointer"
                 >
-                  Cancelar
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -642,7 +681,7 @@ export default function AdminPage() {
                   className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  {deletingRoomId ? 'A eliminar...' : 'Confirmar Eliminação'}
+                  {deletingRoomId ? dict.common.deleting : dict.admin.confirmDeleteBtn}
                 </button>
               </div>
             </div>
