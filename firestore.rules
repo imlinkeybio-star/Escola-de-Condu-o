@@ -237,7 +237,7 @@ service cloud.firestore {
         && (!('questionStartedAtMs' in data) || (data.questionStartedAtMs is int && data.questionStartedAtMs >= 0))
         && (!('questionEndsAtMs' in data) || (data.questionEndsAtMs is int && data.questionEndsAtMs >= 0))
         && (!('questionEndsAt' in data) || (data.questionEndsAt is timestamp))
-        && (!('roundToken' in data) || (data.roundToken is string && data.roundToken.size() <= 256))
+        && (!('roundToken' in data) || (data.roundToken is string && data.roundToken.size() <= 512))
         && (!('finishedAt' in data) || (data.finishedAt is timestamp))
         && data.online is bool
         && data.joinedAt is timestamp
