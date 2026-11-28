@@ -361,7 +361,7 @@ export function CleanShieldedVideo({
                 }
               }}
               onError={() => {
-                setMediaLoadError(true);
+                setMediaLoadErrorUrl(mediaUrl || '');
                 onPlaybackActiveChange?.(false);
                 onMediaError?.(true);
               }}

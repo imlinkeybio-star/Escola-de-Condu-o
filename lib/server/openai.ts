@@ -76,15 +76,15 @@ function shufflePickThemes(seedSource: string): string[] {
 }
 
 function getOpenAIConfig(): { apiKey: string; model: string; baseUrl: string } {
-  const apiKey = (process.env.OPENAI_API_KEY || '').trim();
-  if (!apiKey || apiKey === 'MY_OPENAI_API_KEY') {
+  const apiKey = (process.env.GPT_API_KEY || '').trim();
+  if (!apiKey || apiKey === 'MY_GPT_API_KEY') {
     throw new OpenAIQuestionError(
-      'OPENAI_API_KEY não configurada no servidor. Configura OPENAI_API_KEY para gerar perguntas ao vivo.',
+      'GPT_API_KEY não configurada no servidor. Configura GPT_API_KEY para gerar perguntas ao vivo.',
       503,
-      'MISSING_OPENAI_KEY'
+      'MISSING_GPT_API_KEY'
     );
   }
-  const model = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
+  const model = (process.env.GPT_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
   const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
   return { apiKey, model, baseUrl };
 }
