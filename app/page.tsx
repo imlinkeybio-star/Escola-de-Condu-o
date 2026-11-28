@@ -71,17 +71,15 @@ export default function HomePage() {
             href="/"
             className="flex items-center gap-3 whitespace-nowrap shrink-0"
           >
-            <div className="bg-white/95 rounded-xl px-2 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
-              <Image
-                src="/assets/aistudio/favicon_14076ff5.png"
-                alt={dict.common.brandName}
-                width={60}
-                height={40}
-                className="h-9 w-auto object-contain"
-                priority
-                referrerPolicy="no-referrer"
-              />
-            </div>
+            <Image
+              src="/assets/aistudio/favicon_14076ff5.png"
+              alt={dict.common.brandName}
+              width={60}
+              height={40}
+              className="h-9 w-auto object-contain shrink-0"
+              priority
+              referrerPolicy="no-referrer"
+            />
             <span className="font-display text-lg sm:text-xl font-extrabold tracking-wide text-white hidden sm:inline uppercase">
               {dict.common.brandName}
             </span>

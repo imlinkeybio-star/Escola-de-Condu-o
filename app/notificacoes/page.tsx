@@ -2,11 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Bell,
   CheckCheck,
   ExternalLink,
   Megaphone,
+  MessageSquareText,
   Sparkles,
   Trash2,
   Volume2,
@@ -29,10 +31,15 @@ import {
   FullscreenVideoAdModal,
 } from '@/components/FacebookAdUnit';
 import { BroadcastItem, NotificationItem } from '@/lib/types';
+import { ChatNotificationRecord } from '@/lib/chat-types';
 import {
   clearAllUserNotifications,
   markUserNotificationsAndBroadcastsRead,
 } from '@/lib/firestore-service';
+import {
+  markAllChatNotificationsRead,
+  markChatNotificationReadById,
+} from '@/lib/chat-service';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 import { formatDateLocale, tFormat } from '@/lib/i18n';
 
@@ -48,6 +55,7 @@ function toMillis(ts: unknown): number {
 }
 
 export default function NotificacoesPage() {
+  const router = useRouter();
   const { user, privateInfo, isOwner, canAnnounce } = useAuth();
   const { language, dict } = useLanguage();
 
@@ -63,6 +71,7 @@ export default function NotificacoesPage() {
   };
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[]>([]);
   const [personal, setPersonal] = useState<NotificationItem[]>([]);
+  const [chatNotifs, setChatNotifs] = useState<ChatNotificationRecord[]>([]);
   const [tab, setTab] = useState<'all' | 'broadcasts' | 'personal'>('all');
   const [previewVideo, setPreviewVideo] = useState<BroadcastItem | null>(null);
   const [optimisticReadAtMs, setOptimisticReadAtMs] = useState(0);
@@ -104,9 +113,26 @@ export default function NotificacoesPage() {
       () => {}
     );
 
+    const cq = query(
+      collection(db, 'chat_notifications'),
+      where('recipientUid', '==', user.uid),
+      limit(60)
+    );
+    const unsubC = onSnapshot(
+      cq,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as ChatNotificationRecord)
+          .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+        setChatNotifs(list);
+      },
+      () => {}
+    );
+
     return () => {
       unsubB();
       unsubN();
+      unsubC();
     };
   }, [user]);
 
@@ -130,7 +156,14 @@ export default function NotificacoesPage() {
     return ms === 0 || ms > clearedBeforeMs;
   });
 
-  const unreadPersonalCount = visiblePersonal.filter((n) => !n.read).length;
+  const visibleChatNotifs = chatNotifs.filter((n) => {
+    const ms = toMillis(n.createdAt);
+    return ms === 0 || ms > clearedBeforeMs;
+  });
+
+  const unreadPersonalCount =
+    visiblePersonal.filter((n) => !n.read).length +
+    visibleChatNotifs.filter((n) => !n.read).length;
   const unreadBroadcastCount = visibleBroadcasts.filter((b) => {
     const latestMs = Math.max(toMillis(b.createdAt), toMillis(b.updatedAt));
     return latestMs === 0 ? broadcastsReadAtMs === 0 : latestMs > broadcastsReadAtMs;
@@ -147,6 +180,16 @@ export default function NotificacoesPage() {
     );
   };
 
+  const markChatNotifRead = async (cn: ChatNotificationRecord) => {
+    if (!cn.notifId || cn.read) return;
+    setChatNotifs((prev) =>
+      prev.map((item) =>
+        item.notifId === cn.notifId ? { ...item, read: true } : item
+      )
+    );
+    await markChatNotificationReadById(cn.notifId);
+  };
+
   const handleMarkAllRead = async () => {
     if (!user) return;
     setBusyAction('read');
@@ -157,8 +200,12 @@ export default function NotificacoesPage() {
       .filter((n) => !n.read && n.id)
       .map((n) => n.id!);
     setPersonal((prev) => prev.map((n) => ({ ...n, read: true })));
+    setChatNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
-      await markUserNotificationsAndBroadcastsRead(user.uid, unreadIds);
+      await Promise.all([
+        markUserNotificationsAndBroadcastsRead(user.uid, unreadIds),
+        markAllChatNotificationsRead(user.uid),
+      ]);
       setFeedbackMsg(dict.notifications.markedAllFeedback);
     } finally {
       setBusyAction(null);
@@ -173,8 +220,12 @@ export default function NotificacoesPage() {
     setOptimisticClearedAtMs(nowMs);
     setOptimisticReadAtMs(nowMs);
     setPersonal([]);
+    setChatNotifs([]);
     try {
-      await clearAllUserNotifications(user.uid);
+      await Promise.all([
+        clearAllUserNotifications(user.uid),
+        markAllChatNotificationsRead(user.uid),
+      ]);
       setFeedbackMsg(dict.notifications.clearedAllFeedback);
     } finally {
       setBusyAction(null);
@@ -262,7 +313,9 @@ export default function NotificacoesPage() {
               </button>
             )}
 
-            {(visibleBroadcasts.length > 0 || visiblePersonal.length > 0) && (
+            {(visibleBroadcasts.length > 0 ||
+              visiblePersonal.length > 0 ||
+              visibleChatNotifs.length > 0) && (
               <button
                 type="button"
                 onClick={() => void handleClearAll()}
@@ -326,6 +379,7 @@ export default function NotificacoesPage() {
         {/* Empty State when cleared */}
         {visibleBroadcasts.length === 0 &&
           visiblePersonal.length === 0 &&
+          visibleChatNotifs.length === 0 &&
           tab === 'all' && (
             <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-2">
               <Bell className="w-8 h-8 text-slate-500 mx-auto" />
@@ -436,20 +490,81 @@ export default function NotificacoesPage() {
           </div>
         )}
 
-        {/* Personal Notifications */}
+        {/* Personal & SMS Notifications */}
         {(tab === 'all' || tab === 'personal') && (
           <div className="space-y-3 min-w-0">
-            {visiblePersonal.length === 0 && tab === 'personal' && (
-              <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-2">
-                <Bell className="w-8 h-8 text-slate-500 mx-auto" />
-                <p className="text-sm text-slate-300 font-semibold">
-                  {dict.notifications.emptyPersonalTitle}
+            {visiblePersonal.length === 0 &&
+              visibleChatNotifs.length === 0 &&
+              tab === 'personal' && (
+                <div className="bg-[#111520] border border-white/[0.08] rounded-2xl p-8 text-center space-y-2">
+                  <Bell className="w-8 h-8 text-slate-500 mx-auto" />
+                  <p className="text-sm text-slate-300 font-semibold">
+                    {dict.notifications.emptyPersonalTitle}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {dict.notifications.emptyAllSub}
+                  </p>
+                </div>
+              )}
+
+            {visibleChatNotifs.map((cn) => (
+              <div
+                key={cn.notifId}
+                onClick={() => {
+                  void markChatNotifRead(cn);
+                  router.push(`/chat?chatId=${encodeURIComponent(cn.chatId)}`);
+                }}
+                className={`rounded-2xl p-4 sm:p-5 border space-y-2 transition-colors min-w-0 cursor-pointer ${
+                  cn.read
+                    ? 'bg-[#111520] border-white/[0.08]'
+                    : 'bg-[#121D18] border-[#22C55E]/45'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#22C55E]/15 border border-[#22C55E]/30 text-[10px] font-bold uppercase tracking-wider text-[#22C55E] shrink-0">
+                      <MessageSquareText className="w-3 h-3" />
+                      LIVE CHAT · SMS
+                    </span>
+                    <p className="text-sm font-bold text-white break-words min-w-0 truncate">
+                      {cn.title}
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-mono-tabular shrink-0">
+                    {formatDate(cn.createdAt)}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300 break-words">
+                  {cn.body}
                 </p>
-                <p className="text-xs text-slate-400">
-                  {dict.notifications.emptyAllSub}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {!cn.read && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void markChatNotifRead(cn);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-300 text-[11px] font-semibold cursor-pointer"
+                    >
+                      <CheckCheck className="w-3 h-3" />
+                      {dict.notifications.markReadBtn}
+                    </button>
+                  )}
+                  <Link
+                    href={`/chat?chatId=${encodeURIComponent(cn.chatId)}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void markChatNotifRead(cn);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#22C55E] hover:bg-[#16A34A] text-xs font-bold text-black"
+                  >
+                    <MessageSquareText className="w-3.5 h-3.5" />
+                    {dict.common.open} · {dict.nav.liveChat}
+                  </Link>
+                </div>
               </div>
-            )}
+            ))}
 
             {visiblePersonal.map((n) => {
               const safeLink = sanitizeSafeUrl(n.linkUrl);

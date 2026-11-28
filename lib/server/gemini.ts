@@ -248,6 +248,68 @@ If a specific category is requested (other than general/Geral), focus most quest
   );
 }
 
+const TEXT_FALLBACK_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-4-hydrogen',
+] as const;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function generateTextWithFallback(params: {
+  systemInstruction: string;
+  prompt: string;
+  jsonMode?: boolean;
+}): Promise<string> {
+  // 1. Prefer OpenAI (GPT_API_KEY / GPT_MODEL) when configured
+  const hasGptKey =
+    Boolean(process.env.GPT_API_KEY?.trim()) &&
+    process.env.GPT_API_KEY?.trim() !== 'MY_GPT_API_KEY';
+
+  if (hasGptKey) {
+    try {
+      const { callOpenAITextCompletion } = await import('./openai');
+      return await callOpenAITextCompletion({
+        systemInstruction: params.systemInstruction,
+        prompt: params.prompt,
+        jsonMode: params.jsonMode,
+      });
+    } catch (err) {
+      console.warn('OpenAI text request failed, falling back to Gemini:', err);
+    }
+  }
+
+  // 2. Fallback to Gemini model cascade with retry
+  const ai = getAIClient();
+  let lastErr: unknown = null;
+  for (const model of TEXT_FALLBACK_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.prompt,
+          config: {
+            systemInstruction: params.systemInstruction,
+            ...(params.jsonMode ? { responseMimeType: 'application/json' } : {}),
+          },
+        });
+        const text = response.text?.trim();
+        if (text) return text;
+      } catch (err) {
+        lastErr = err;
+        if (attempt === 0) await delay(350);
+      }
+    }
+  }
+
+  console.error('All AI providers failed for text generation:', lastErr);
+  throw new Error(
+    'O serviço inteligente está com muita procura neste momento. Tenta novamente dentro de alguns segundos.'
+  );
+}
+
 export async function generateCompetitionSummary(params: {
   roomTitle: string;
   winnerName: string;
@@ -257,43 +319,37 @@ export async function generateCompetitionSummary(params: {
   topTopics: string[];
   language?: LanguageCode;
 }): Promise<string> {
-  const ai = getAIClient();
   const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(params.language)];
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: `Create a motivating and educational final summary (max 90 words) written strictly in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving quiz competition "${params.roomTitle}".
+  const fallbackSummary = `${params.winnerName} (${params.winnerScore} pts) — ${params.roomTitle}`;
+
+  try {
+    const text = await generateTextWithFallback({
+      systemInstruction: `You are the official driving examiner of Escola de Condução Live in Angola. Write concisely in ${langMeta.aiLanguageName} (${langMeta.bcp47}).`,
+      prompt: `Create a motivating and educational final summary (max 90 words) written strictly in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving quiz competition "${params.roomTitle}".
 Winner: ${params.winnerName} with ${params.winnerScore} points.
 Participants: ${params.participantCount}. Total questions: ${params.totalQuestions}.
 Topics covered: ${params.topTopics.join(', ')}.
 Congratulate the podium and reinforce a practical road safety message for Angola.`,
-  });
-  return (
-    response.text?.trim() ||
-    `${params.winnerName} (${params.winnerScore} pts) — ${params.roomTitle}`
-  ).slice(0, 1800);
+    });
+    return (text || fallbackSummary).slice(0, 1800);
+  } catch {
+    return fallbackSummary;
+  }
 }
 
 export async function askVirtualExaminer(
   question: string,
   language: LanguageCode = 'pt'
 ): Promise<string> {
-  const ai = getAIClient();
   const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(language)];
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: question,
-    config: {
-      systemInstruction: `You are the Virtual Driving Examiner of Escola de Condução Live in Angola.
+  return await generateTextWithFallback({
+    systemInstruction: `You are the Virtual Driving Examiner of Escola de Condução Live in Angola.
 Answer students' questions about the Angola Highway Code, road signage, right-of-way priorities, defensive driving, and official exam preparation.
 Rules:
 - Respond STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}), clearly, structured, and pedagogically (maximum 200 words).
 - Never invent exact article numbers or fine amounts unless verifiably certain; otherwise explain the practical official rule under the Angola Highway Code (Decree-Law No. 5/08).`,
-    },
+    prompt: question,
   });
-  return (
-    response.text?.trim() ||
-    'Could not process the question right now. Please try rephrasing.'
-  );
 }
 
 export async function generateAiBroadcastContent(params: {
@@ -301,11 +357,10 @@ export async function generateAiBroadcastContent(params: {
   topic: string;
   language?: LanguageCode;
 }): Promise<{ title: string; body: string; suggestedLinkLabel: string }> {
-  const ai = getAIClient();
   const langMeta = LANGUAGE_META_MAP[normalizeLanguageCode(params.language)];
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: `Create an announcement/ad STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving school quiz platform Escola de Condução Live (Angola).
+  const rawJson = await generateTextWithFallback({
+    systemInstruction: `You are the official copywriter for Escola de Condução Live in Angola. Write clearly and engagingly in ${langMeta.aiLanguageName}. Always reply strictly with a JSON object containing keys: "title", "body", "suggestedLinkLabel".`,
+    prompt: `Create an announcement/ad STRICTLY in ${langMeta.aiLanguageName} (${langMeta.bcp47}) for the driving school quiz platform Escola de Condução Live (Angola).
 Communication type: ${params.kind}
 Topic / goal defined by the app owner: ${params.topic}
 
@@ -313,33 +368,27 @@ Rules:
 - Short, clear, engaging title in ${langMeta.aiLanguageName} (max 80 characters).
 - Informative and persuasive body suitable for driving students in Angola in ${langMeta.aiLanguageName} (max 240 characters).
 - Short clickable button label in ${langMeta.aiLanguageName} (max 28 characters).`,
-    config: {
-      systemInstruction: `You are the official copywriter for Escola de Condução Live in Angola. Write clearly and engagingly in ${langMeta.aiLanguageName}.`,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          body: { type: Type.STRING },
-          suggestedLinkLabel: { type: Type.STRING },
-        },
-        required: ['title', 'body', 'suggestedLinkLabel'],
-      },
-    },
+    jsonMode: true,
   });
 
-  const parsed = JSON.parse((response.text ?? '{}').trim()) as {
-    title?: string;
-    body?: string;
-    suggestedLinkLabel?: string;
-  };
+  let parsed: { title?: string; body?: string; suggestedLinkLabel?: string } = {};
+  try {
+    parsed = JSON.parse(rawJson) as {
+      title?: string;
+      body?: string;
+      suggestedLinkLabel?: string;
+    };
+  } catch {
+    throw new Error('Não foi possível estruturar o anúncio automático. Tenta novamente.');
+  }
+
   if (!parsed.title || !parsed.body) {
-    throw new Error('A IA não conseguiu gerar o conteúdo da notificação.');
+    throw new Error('Não foi possível gerar o conteúdo do anúncio. Tenta novamente.');
   }
   return {
     title: parsed.title.trim().slice(0, 110),
     body: parsed.body.trim().slice(0, 500),
-    suggestedLinkLabel: (parsed.suggestedLinkLabel || 'Open').trim().slice(0, 40),
+    suggestedLinkLabel: (parsed.suggestedLinkLabel || 'Saber mais').trim().slice(0, 40),
   };
 }
 
@@ -411,49 +460,70 @@ export async function synthesizeSpeech(
         };
       }
     } catch (err) {
-      console.warn('Cloud TTS falhou, a usar Gemini TTS:', err);
+      console.warn('Cloud TTS falhou, a tentar alternativa:', err);
     }
   }
 
-  // 2. Built-in Gemini TTS (gemini-3.8-flash-lite-tts) returning WAV
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash-lite-tts',
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: cleanText,
-            speechMetadata: {
-              style: `Official driving school examiner, clear, professional, warm female voice speaking natively in ${langMeta.aiLanguageName}`,
-            },
-          },
-        ],
-      },
-    ],
-    config: {
-      responseModalities: ['AUDIO'],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
-        },
-      },
-    },
-  });
-
-  const base64Audio =
-    response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Audio) {
-    throw new Error('Não foi possível gerar o áudio da examinadora virtual.');
+  // 2. Try OpenAI TTS if GPT_API_KEY is configured
+  try {
+    const { callOpenAISpeech } = await import('./openai');
+    const openaiAudio = await callOpenAISpeech(cleanText);
+    if (openaiAudio) {
+      cacheTts(cacheKey, openaiAudio.audioBase64);
+      return openaiAudio;
+    }
+  } catch (err) {
+    console.warn('OpenAI TTS falhou, a tentar Gemini TTS:', err);
   }
 
-  cacheTts(cacheKey, base64Audio);
-  return {
-    audioBase64: base64Audio,
-    mimeType: 'audio/wav',
-    provider: 'gemini-tts',
-  };
+  // 3. Built-in Gemini TTS (gemini-3.8-flash-lite-tts) with retry
+  if (process.env.GEMINI_API_KEY?.trim()) {
+    const ai = getAIClient();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: cleanText,
+                  speechMetadata: {
+                    style: `Official driving school examiner, clear, professional, warm female voice speaking natively in ${langMeta.aiLanguageName}`,
+                  },
+                },
+              ],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: 'Kore' },
+              },
+            },
+          },
+        });
+
+        const base64Audio =
+          response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (base64Audio) {
+          cacheTts(cacheKey, base64Audio);
+          return {
+            audioBase64: base64Audio,
+            mimeType: 'audio/wav',
+            provider: 'gemini-tts',
+          };
+        }
+      } catch (err) {
+        console.warn(`Gemini TTS attempt ${attempt + 1} failed:`, err);
+        if (attempt === 0) await delay(350);
+      }
+    }
+  }
+
+  throw new Error('Voz de alta definição temporariamente indisponível. A usar a voz do dispositivo.');
 }
 
 export async function synthesizePortugueseSpeech(text: string) {

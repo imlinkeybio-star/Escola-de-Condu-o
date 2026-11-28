@@ -55,6 +55,7 @@ import { useAuth } from './AuthProvider';
 import { useLanguage } from './LanguageProvider';
 import { useVoiceExaminer } from '@/hooks/useVoiceExaminer';
 import { TrafficSignDisplay } from './TrafficSignDisplay';
+import { toUserFriendlyError } from '@/lib/error-messages';
 import {
   formatNumberLocale,
   tFormat,
@@ -149,7 +150,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (!user || !profile || !roomId) return;
     void joinCompetitionRoom(roomId, profile).catch((err) => {
-      setErrorMsg(err instanceof Error ? err.message : dict.arena.joinError);
+      setErrorMsg(toUserFriendlyError(err, dict.arena.joinError));
     });
   }, [user, profile, roomId, dict.arena.joinError]);
 
@@ -391,11 +392,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       }
     } catch (err) {
       advanceTriggeredForRef.current = -1;
-      setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : dict.arena.advanceError
-      );
+      setErrorMsg(toUserFriendlyError(err, dict.arena.advanceError));
     } finally {
       setAdvancing(false);
     }
@@ -500,11 +497,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
       setGenerationStatus('completed');
     } catch (err) {
       setGenerationStatus('failed');
-      setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : dict.arena.startError
-      );
+      setErrorMsg(toUserFriendlyError(err, dict.arena.startError));
     } finally {
       startingLockRef.current = false;
       setStarting(false);
@@ -537,11 +530,7 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
         selectedIndex: idx,
       });
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : dict.arena.submitError
-      );
+      setErrorMsg(toUserFriendlyError(err, dict.arena.submitError));
     } finally {
       setSubmitting(false);
     }

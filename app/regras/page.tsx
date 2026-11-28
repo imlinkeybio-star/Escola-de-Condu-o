@@ -9,6 +9,7 @@ import { SIGN_LABELS, TrafficSignDisplay } from '@/components/TrafficSignDisplay
 import { useAuth } from '@/components/AuthProvider';
 import { useLanguage } from '@/components/LanguageProvider';
 import { getCoreRules, translateSignLabel } from '@/lib/i18n';
+import { toUserFriendlyError } from '@/lib/error-messages';
 import examinerImg from '@/src/assets/images/virtual_examiner_angola_1795615139196.jpg';
 
 const SIGN_KEYS = Object.keys(SIGN_LABELS);
@@ -47,9 +48,7 @@ export default function RegrasPage() {
       if (!res.ok) throw new Error(json.error || dict.rules.genericAiError);
       setAnswer(json.answer || '');
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.rules.genericAiError
-      );
+      setError(toUserFriendlyError(err, dict.rules.genericAiError));
     } finally {
       setAsking(false);
     }

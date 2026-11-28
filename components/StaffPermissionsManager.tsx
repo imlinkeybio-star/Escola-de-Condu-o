@@ -24,6 +24,7 @@ import {
 import { APP_OWNER_EMAIL } from '@/lib/url-safety';
 import { useLanguage } from './LanguageProvider';
 import { tFormat } from '@/lib/i18n';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -102,9 +103,7 @@ export function StaffPermissionsManager() {
         tFormat(dict.permissoes.managerUpdatedMsg, { email: saved.email })
       );
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.permissoes.saveErr
-      );
+      setError(toUserFriendlyError(err, dict.permissoes.saveErr));
     } finally {
       setSaving(false);
     }
@@ -130,9 +129,7 @@ export function StaffPermissionsManager() {
         active: field === 'active' ? !item.active : item.active,
       });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.permissoes.updateErr
-      );
+      setError(toUserFriendlyError(err, dict.permissoes.updateErr));
     }
   };
 
@@ -146,9 +143,7 @@ export function StaffPermissionsManager() {
         tFormat(dict.permissoes.managerRemovedMsg, { email: targetEmail })
       );
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.permissoes.removeErr
-      );
+      setError(toUserFriendlyError(err, dict.permissoes.removeErr));
     }
   };
 

@@ -49,6 +49,7 @@ import {
   translateSignLabel,
 } from '@/lib/i18n';
 import { APP_OWNER_EMAIL } from '@/lib/url-safety';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export default function AdminPage() {
   const { user, profile, isAdmin, isOwner, canViewReserved, canAnnounce, loading } =
@@ -165,7 +166,7 @@ export default function AdminPage() {
       );
       setRoomTitle('');
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : dict.admin.roomCreateErr);
+      setStatusMsg(toUserFriendlyError(err, dict.admin.roomCreateErr));
     } finally {
       setCreatingRoom(false);
     }
@@ -194,7 +195,7 @@ export default function AdminPage() {
       setExplanation('');
       setStatusMsg(dict.admin.questionAddedMsg);
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : dict.admin.questionSaveErr);
+      setStatusMsg(toUserFriendlyError(err, dict.admin.questionSaveErr));
     }
   };
 
@@ -209,9 +210,7 @@ export default function AdminPage() {
       );
       setConfirmDeleteRoom(null);
     } catch (err) {
-      setStatusMsg(
-        err instanceof Error ? err.message : dict.admin.roomDeleteErr
-      );
+      setStatusMsg(toUserFriendlyError(err, dict.admin.roomDeleteErr));
     } finally {
       setDeletingRoomId(null);
     }

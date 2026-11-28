@@ -37,6 +37,7 @@ import {
 } from '@/lib/chat-service';
 import { UserProfile } from '@/lib/types';
 import { useLanguage } from '@/components/LanguageProvider';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 interface CreateGroupModalProps {
   currentUser: UserProfile;
@@ -83,9 +84,7 @@ export function CreateGroupModal({
       onCreated(room);
       onClose();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Erro ao criar grupo.'
-      );
+      setError(toUserFriendlyError(err, 'Não foi possível criar o grupo.'));
     } finally {
       setSubmitting(false);
     }

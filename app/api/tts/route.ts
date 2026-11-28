@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { synthesizeSpeech } from '@/lib/server/gemini';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,12 +30,12 @@ export async function POST(req: NextRequest) {
     console.error('Erro em /api/tts:', err);
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Erro na síntese de voz em português.',
+        error: toUserFriendlyError(
+          err,
+          'Voz de alta definição temporariamente ocupada. A usar a voz do navegador.'
+        ),
       },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

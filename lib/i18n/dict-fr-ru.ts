@@ -690,6 +690,17 @@ export const frDict = {
     deleteRecentLogin:
       'Par sécurité, reconnectez-vous avant de supprimer votre compte.',
     deleteErrMsg: 'Impossible de supprimer le compte.',
+    riskZonePageTitle: 'Zone à Risque du Compte',
+    riskZonePageDesc:
+      'Actions critiques protégées par une vérification obligatoire via Google Authenticator (2FA).',
+    openRiskZoneBtn: 'Ouvrir la Zone à Risque',
+    backToSettingsBtn: 'Retour aux Paramètres',
+    totpRequiredBannerTitle: 'Google Authenticator requis',
+    totpRequiredBannerDesc:
+      "Pour réinitialiser d'usine ou supprimer définitivement votre compte, activez et vérifiez Google Authenticator ci-dessous.",
+    otpInputLabel: 'Code actuel à 6 chiffres Google Authenticator :',
+    otpRequiredErr:
+      'Saisissez le code à 6 chiffres de Google Authenticator pour confirmer cette action.',
   },
   ads: {
     sponsored: 'Sponsorisé',
@@ -1742,6 +1753,17 @@ export const ruDict = {
     deleteRecentLogin:
       'В целях безопасности выйдите и снова войдите перед удалением аккаунта.',
     deleteErrMsg: 'Не удалось удалить аккаунт.',
+    riskZonePageTitle: 'Зона риска аккаунта',
+    riskZonePageDesc:
+      'Критические действия, защищённые обязательной проверкой через Google Authenticator (2FA).',
+    openRiskZoneBtn: 'Открыть зону риска',
+    backToSettingsBtn: 'Вернуться в настройки',
+    totpRequiredBannerTitle: 'Требуется Google Authenticator',
+    totpRequiredBannerDesc:
+      'Для сброса к заводским настройкам или окончательного удаления аккаунта сначала включите и подтвердите Google Authenticator ниже.',
+    otpInputLabel: 'Текущий 6-значный код Google Authenticator:',
+    otpRequiredErr:
+      'Введите 6-значный код Google Authenticator для подтверждения операции.',
   },
   ads: {
     sponsored: 'Реклама',

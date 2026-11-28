@@ -52,6 +52,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { toUserFriendlyError } from '@/lib/error-messages';
 import { useAuth } from '@/components/AuthProvider';
 import { useLanguage } from '@/components/LanguageProvider';
 import { UserProfile } from '@/lib/types';
@@ -135,7 +136,11 @@ function formatLastSeen(ms?: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
-export function LiveChatWorkspace() {
+interface LiveChatWorkspaceProps {
+  initialChatId?: string;
+}
+
+export function LiveChatWorkspace({ initialChatId = '' }: LiveChatWorkspaceProps) {
   const { user, profile } = useAuth();
   const { dict, fmt } = useLanguage();
 
@@ -154,7 +159,8 @@ export function LiveChatWorkspace() {
   >([]);
   const [favorites, setFavorites] = useState<ChatFavoriteRecord[]>([]);
 
-  const [activeChatId, setActiveChatId] = useState<string>('');
+  const [activeChatId, setActiveChatId] = useState<string>(initialChatId);
+  const [openingContactUid, setOpeningContactUid] = useState<string>('');
   const [activeMembers, setActiveMembers] = useState<
     Record<string, ChatMemberState>
   >({});
@@ -274,18 +280,32 @@ export function LiveChatWorkspace() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!initialChatId) return;
+    const t = setTimeout(() => {
+      setActiveChatId(initialChatId);
+      setRailTab('chats');
+    }, 0);
+    return () => clearTimeout(t);
+  }, [initialChatId]);
+
   // Subscribe to Users, Presence, Chats, Notifications, Favorites
   useEffect(() => {
     if (!user) return;
 
     const unsubUsers = onSnapshot(
-      query(collection(db, 'users'), limit(150)),
+      query(
+        collection(db, 'users'),
+        where('disabled', '==', false),
+        limit(150)
+      ),
       (snap) => {
         const list = snap.docs
           .map((d) => d.data() as UserProfile)
           .filter((u) => !u.disabled);
         setUsers(list);
-      }
+      },
+      () => {}
     );
 
     const unsubPresence = onSnapshot(
@@ -297,7 +317,8 @@ export function LiveChatWorkspace() {
           map[p.uid] = p;
         });
         setPresenceMap(map);
-      }
+      },
+      () => {}
     );
 
     const unsubChats = onSnapshot(
@@ -311,7 +332,8 @@ export function LiveChatWorkspace() {
           .map((d) => d.data() as ChatRoom)
           .sort((a, b) => (b.lastMessageAtMs || 0) - (a.lastMessageAtMs || 0));
         setChats(list);
-      }
+      },
+      () => {}
     );
 
     const unsubNotifs = onSnapshot(
@@ -324,7 +346,8 @@ export function LiveChatWorkspace() {
         setChatNotifications(
           snap.docs.map((d) => d.data() as ChatNotificationRecord)
         );
-      }
+      },
+      () => {}
     );
 
     const unsubFavs = onSnapshot(
@@ -334,7 +357,8 @@ export function LiveChatWorkspace() {
           .map((d) => d.data() as ChatFavoriteRecord)
           .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
         setFavorites(list);
-      }
+      },
+      () => {}
     );
 
     return () => {
@@ -360,7 +384,8 @@ export function LiveChatWorkspace() {
             const ms = d.data() as ChatMemberState;
             setMyMembersByChat((prev) => ({ ...prev, [c.chatId]: ms }));
           });
-        }
+        },
+        () => {}
       )
     );
     return () => {
@@ -473,7 +498,8 @@ export function LiveChatWorkspace() {
           mMap[ms.uid] = ms;
         });
         setActiveMembers(mMap);
-      }
+      },
+      () => {}
     );
 
     const unsubMsgs = onSnapshot(
@@ -642,13 +668,16 @@ export function LiveChatWorkspace() {
   };
 
   const handleStartDirectWith = async (target: UserProfile) => {
-    if (!profile) return;
+    if (!profile || openingContactUid) return;
+    setOpeningContactUid(target.uid);
     try {
       const room = await createOrOpenDirectChat(profile, target);
       setRailTab('chats');
       handleOpenChat(room.chatId);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Erro ao abrir conversa.');
+      showToast(toUserFriendlyError(err, 'Não foi possível abrir esta conversa agora.'));
+    } finally {
+      setOpeningContactUid('');
     }
   };
 
@@ -710,7 +739,7 @@ export function LiveChatWorkspace() {
             clientNonce: nonce,
             createdAtMs: Date.now(),
             localStatus: 'failed',
-            localError: err instanceof Error ? err.message : 'Erro ao enviar',
+            localError: toUserFriendlyError(err, 'Não foi possível enviar a mensagem.'),
           },
         ]);
       }
@@ -829,9 +858,7 @@ export function LiveChatWorkspace() {
           status: isAbort ? 'cancelled' : 'failed',
           error: isAbort
             ? undefined
-            : err instanceof Error
-              ? err.message
-              : 'Falha no envio',
+            : toUserFriendlyError(err, 'Não foi possível enviar o ficheiro.'),
           canResume: true,
         });
       }
@@ -1247,9 +1274,13 @@ export function LiveChatWorkspace() {
                     </div>
                     <button
                       type="button"
+                      disabled={openingContactUid === u.uid}
                       onClick={() => void handleStartDirectWith(u)}
-                      className="px-3 py-1.5 rounded-xl bg-[#22C55E]/15 hover:bg-[#22C55E]/25 border border-[#22C55E]/35 text-[#22C55E] text-[11px] font-extrabold cursor-pointer shrink-0"
+                      className="px-3 py-1.5 rounded-xl bg-[#22C55E]/15 hover:bg-[#22C55E]/25 disabled:opacity-60 border border-[#22C55E]/35 text-[#22C55E] text-[11px] font-extrabold cursor-pointer shrink-0 inline-flex items-center gap-1"
                     >
+                      {openingContactUid === u.uid && (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      )}
                       {dict.chat.openChatBtn}
                     </button>
                   </div>

@@ -102,7 +102,8 @@ service cloud.firestore {
 
     function isUserNotDisabled(uid) {
       return !exists(/databases/$(database)/documents/users/$(uid))
-        || get(/databases/$(database)/documents/users/$(uid)).data.disabled == false;
+        || !('disabled' in get(/databases/$(database)/documents/users/$(uid)).data)
+        || get(/databases/$(database)/documents/users/$(uid)).data.disabled != true;
     }
 
     // =========================================================================
@@ -256,14 +257,14 @@ service cloud.firestore {
         && data.roomId is string && data.roomId == roomId && isValidId(data.roomId)
         && (!('uid' in data) || (data.uid is string && isValidId(data.uid)))
         && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
-        && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
+        && data.questionText is string && data.questionText.size() >= 2 && data.questionText.size() <= 1000
         && data.options is list && data.options.size() == 4
         && data.options[0] is string && data.options[1] is string
         && data.options[2] is string && data.options[3] is string
         && data.category is string && data.category.size() >= 2 && data.category.size() <= 80
         && data.difficulty is string && data.difficulty.size() >= 2 && data.difficulty.size() <= 40
         && data.signType is string && data.signType.size() >= 1 && data.signType.size() <= 60
-        && data.sealedPayload is string && data.sealedPayload.size() >= 10 && data.sealedPayload.size() <= 4000
+        && data.sealedPayload is string && data.sealedPayload.size() >= 10 && data.sealedPayload.size() <= 8000
         && data.answerCommitment is string && data.answerCommitment.size() >= 16 && data.answerCommitment.size() <= 128
         && data.createdAt is timestamp;
     }
@@ -301,11 +302,13 @@ service cloud.firestore {
     function isValidPlayerScoreStep(roomId, uid, inc, ex) {
       let room = get(/databases/$(database)/documents/rooms/$(roomId)).data;
       let qIdx = ex.currentQuestionIndex;
-      let revealed = get(/databases/$(database)/documents/rooms/$(roomId)/player_revealed/$(uid + '_' + string(qIdx))).data;
+      let revealedPath = /databases/$(database)/documents/rooms/$(roomId)/player_revealed/$(uid + '_' + string(qIdx));
+      let revealed = get(revealedPath).data;
       let ansPath = /databases/$(database)/documents/rooms/$(roomId)/answers/$(string(qIdx) + '_' + uid);
       let isCorrect = exists(ansPath) && get(ansPath).data.selectedIndex == revealed.correctIndex;
       return room.status != 'FINISHED'
         && (!('finishedCount' in room) || room.finishedCount < 100)
+        && exists(revealedPath)
         && ex.status == 'PLAYING'
         && inc.status == 'ANSWER_REVEAL'
         && inc.currentQuestionIndex == qIdx
@@ -508,6 +511,14 @@ service cloud.firestore {
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
     }
 
+    function isChatMemberOrCreating(chatId) {
+      return isChatMember(chatId) || (
+        isSignedIn() && isValidId(chatId)
+        && existsAfter(/databases/$(database)/documents/chats/$(chatId))
+        && request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(chatId)).data.memberIds
+      );
+    }
+
     function isChatAdmin(chatId) {
       return isSignedIn() && isValidId(chatId)
         && exists(/databases/$(database)/documents/chats/$(chatId))
@@ -515,6 +526,17 @@ service cloud.firestore {
           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminIds
           || get(/databases/$(database)/documents/chats/$(chatId)).data.createdBy == request.auth.uid
         );
+    }
+
+    function isChatAdminOrCreator(chatId) {
+      return isChatAdmin(chatId) || (
+        isSignedIn() && isValidId(chatId)
+        && existsAfter(/databases/$(database)/documents/chats/$(chatId))
+        && (
+          getAfter(/databases/$(database)/documents/chats/$(chatId)).data.createdBy == request.auth.uid
+          || request.auth.uid in getAfter(/databases/$(database)/documents/chats/$(chatId)).data.adminIds
+        )
+      );
     }
 
     function isBlockedByUser(targetUid, actorUid) {
@@ -808,7 +830,7 @@ service cloud.firestore {
           || (
             isOwner(uid) && existing().disabled == false && incoming().disabled == false
             && incoming().totalPoints >= existing().totalPoints
-            && incoming().totalPoints <= existing().totalPoints + 500
+            && incoming().totalPoints <= existing().totalPoints + 5000
             && incoming().gamesPlayed == existing().gamesPlayed + 1
             && incoming().wins >= existing().wins && incoming().wins <= existing().wins + 1
             && incoming().correctAnswers >= existing().correctAnswers
@@ -966,14 +988,16 @@ service cloud.firestore {
                 || get(/databases/$(database)/documents/rooms/$(roomId)).data.finishedCount < 100
               )
               && (
-                incoming().diff(existing()).affectedKeys().hasOnly(['online', 'lastActiveAt'])
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'online', 'lastActiveAt', 'lastScoredQuestionIndex', 'questionsGenerated'
+                ])
                 || (
                   incoming().status == 'PLAYING'
                   && incoming().questionsGenerated == true
                   && incoming().currentQuestionIndex >= 0
                   && incoming().currentQuestionIndex < get(/databases/$(database)/documents/rooms/$(roomId)).data.totalQuestions
                   && (
-                    (existing().status == 'WAITING' && incoming().currentQuestionIndex == 0)
+                    ((existing().status == 'WAITING' || (existing().status == 'PLAYING' && existing().currentQuestionIndex == 0 && existing().lastScoredQuestionIndex == -1)) && incoming().currentQuestionIndex == 0)
                     || (
                       existing().status == 'ANSWER_REVEAL'
                       && incoming().currentQuestionIndex == existing().currentQuestionIndex + 1
@@ -1023,7 +1047,7 @@ service cloud.firestore {
 
       match /player_questions/{qDocId} {
         allow get: if isSignedIn() && isValidId(roomId) && isValidLongId(qDocId)
-          && (existing().uid == request.auth.uid || isAdmin());
+          && (resource == null || existing().uid == request.auth.uid || isAdmin());
         allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
         allow create: if isSignedIn() && isValidId(roomId) && isValidLongId(qDocId)
           && isValidRoomQuestion(incoming(), roomId)
@@ -1070,7 +1094,7 @@ service cloud.firestore {
 
       match /player_revealed/{rDocId} {
         allow get: if isSignedIn() && isValidId(roomId) && isValidLongId(rDocId)
-          && (existing().uid == request.auth.uid || isAdmin());
+          && (resource == null || existing().uid == request.auth.uid || isAdmin());
         allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
         allow create: if isSignedIn() && isValidId(roomId) && isValidLongId(rDocId)
           && isValidRevealedAnswer(incoming(), roomId)
@@ -1104,7 +1128,7 @@ service cloud.firestore {
     }
 
     match /results/{resultId} {
-      allow get: if isSignedIn() && isValidLongId(resultId) && (existing().uid == request.auth.uid || existing().isPublic == true || canViewReservedScreens());
+      allow get: if isSignedIn() && isValidLongId(resultId) && (resource == null || existing().uid == request.auth.uid || existing().isPublic == true || canViewReservedScreens());
       allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.isPublic == true || canViewReservedScreens());
       allow create: if isSignedIn() && isValidLongId(resultId)
         && isValidUserResult(incoming(), resultId)
@@ -1200,7 +1224,7 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow get: if isSignedIn() && isValidId(notificationId) && (existing().uid == request.auth.uid || isBootstrappedAdmin());
+      allow get: if isSignedIn() && isValidId(notificationId) && (resource == null || existing().uid == request.auth.uid || isBootstrappedAdmin());
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
       allow create: if isSignedIn() && isValidId(notificationId)
         && isValidNotification(incoming())
@@ -1216,7 +1240,7 @@ service cloud.firestore {
     }
 
     match /broadcasts/{broadcastId} {
-      allow get: if isSignedIn() && isValidId(broadcastId) && (existing().active == true || canAnnounce() || canViewReservedScreens());
+      allow get: if isSignedIn() && isValidId(broadcastId) && (resource == null || existing().active == true || canAnnounce() || canViewReservedScreens());
       allow list: if isSignedIn() && (resource.data.active == true || canAnnounce() || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(broadcastId) && canAnnounce()
         && isValidBroadcast(incoming(), broadcastId)
@@ -1233,7 +1257,7 @@ service cloud.firestore {
     }
 
     match /question_bank/{questionId} {
-      allow get: if isSignedIn() && isValidId(questionId) && (existing().active == true || canViewReservedScreens());
+      allow get: if isSignedIn() && isValidId(questionId) && (resource == null || existing().active == true || canViewReservedScreens());
       allow list: if isSignedIn() && (resource.data.active == true || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(questionId) && isAdmin()
         && isValidQuestionBankItem(incoming())
@@ -1298,7 +1322,7 @@ service cloud.firestore {
     // =========================================================================
     match /chats/{chatId} {
       allow get: if isSignedIn() && isValidId(chatId)
-        && (request.auth.uid in existing().memberIds || isAdmin());
+        && (resource == null || request.auth.uid in existing().memberIds || isAdmin());
       allow list: if isSignedIn() && (request.auth.uid in resource.data.memberIds);
       allow create: if isSignedIn() && isValidId(chatId)
         && isUserNotDisabled(request.auth.uid)
@@ -1317,6 +1341,7 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           request.auth.uid in existing().adminIds
+          || existing().createdBy == request.auth.uid
           || isAdmin()
           || (
             !isDirectChatBlocked(existing(), request.auth.uid)
@@ -1338,7 +1363,7 @@ service cloud.firestore {
       allow delete: if isSignedIn() && isValidId(chatId) && isAdmin();
 
       match /members/{uid} {
-        allow get: if isSignedIn() && isValidId(uid) && isChatMember(chatId);
+        allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isChatMember(chatId));
         allow list: if isSignedIn() && isChatMember(chatId);
         allow create: if isSignedIn() && isValidId(uid)
           && isValidChatMember(incoming(), chatId, uid)
@@ -1346,8 +1371,7 @@ service cloud.firestore {
           && incoming().updatedAt == request.time
           && (
             isOwner(uid)
-            || isChatAdmin(chatId)
-            || get(/databases/$(database)/documents/chats/$(chatId)).data.createdBy == request.auth.uid
+            || isChatAdminOrCreator(chatId)
           );
         allow update: if isSignedIn() && isValidId(uid)
           && isChatMember(chatId)
@@ -1441,7 +1465,7 @@ service cloud.firestore {
 
     match /chat_presence/{uid} {
       allow get: if isSignedIn() && isValidId(uid);
-      allow list: if isSignedIn() && resource.data.uid is string;
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && isValidId(uid)
         && isOwner(uid)
         && isValidChatPresence(incoming(), uid)
@@ -1456,23 +1480,23 @@ service cloud.firestore {
 
     match /chat_notifications/{notifId} {
       allow get: if isSignedIn() && isValidId(notifId)
-        && (existing().recipientUid == request.auth.uid || existing().senderUid == request.auth.uid || isAdmin());
+        && (resource == null || existing().recipientUid == request.auth.uid || existing().senderUid == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
       allow create: if isSignedIn() && isValidId(notifId)
         && isValidChatNotification(incoming(), notifId)
         && incoming().senderUid == request.auth.uid
-        && isChatMember(incoming().chatId)
+        && isChatMemberOrCreating(incoming().chatId)
         && incoming().createdAt == request.time;
       allow update: if isSignedIn() && isValidId(notifId)
         && existing().recipientUid == request.auth.uid
         && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
       allow delete: if isSignedIn() && isValidId(notifId)
-        && (existing().recipientUid == request.auth.uid || isAdmin());
+        && (resource == null || existing().recipientUid == request.auth.uid || existing().senderUid == request.auth.uid || isAdmin());
     }
 
     match /chat_reports/{reportId} {
       allow get: if isSignedIn() && isValidId(reportId)
-        && (existing().reporterUid == request.auth.uid || canViewReservedScreens());
+        && (resource == null || existing().reporterUid == request.auth.uid || canViewReservedScreens());
       allow list: if isSignedIn()
         && (resource.data.reporterUid == request.auth.uid || canViewReservedScreens());
       allow create: if isSignedIn() && isValidId(reportId)

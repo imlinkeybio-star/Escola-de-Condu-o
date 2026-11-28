@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { askVirtualExaminer } from '@/lib/server/gemini';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,12 +31,12 @@ export async function POST(req: NextRequest) {
     console.error('Erro em /api/ai/examiner-chat:', err);
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Erro ao consultar a examinadora virtual.',
+        error: toUserFriendlyError(
+          err,
+          'Não foi possível consultar a examinadora virtual agora. Tenta novamente dentro de instantes.'
+        ),
       },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

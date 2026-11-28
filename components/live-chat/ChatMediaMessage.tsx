@@ -24,6 +24,7 @@ import {
   triggerOriginalFileDownload,
 } from '@/lib/chat-service';
 import { useLanguage } from '@/components/LanguageProvider';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 interface ChatMediaMessageProps {
   chatId: string;
@@ -99,7 +100,7 @@ export function ChatMediaMessage({
       return url;
     } catch (err) {
       setBlobError(
-        err instanceof Error ? err.message : 'Erro ao carregar ficheiro.'
+        toUserFriendlyError(err, 'Não foi possível carregar o ficheiro.')
       );
       setLoadingBlob(false);
       return null;

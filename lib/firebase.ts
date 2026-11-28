@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import { toUserFriendlyError } from './error-messages';
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
@@ -59,7 +60,12 @@ export function handleFirestoreError(
     path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  throw new Error(
+    toUserFriendlyError(
+      errInfo.error,
+      'Não foi possível concluir esta operação agora. Atualiza a página e tenta novamente.'
+    )
+  );
 }
 
 let connectionTested = false;

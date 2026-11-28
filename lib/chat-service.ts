@@ -346,27 +346,36 @@ export async function createOrOpenDirectChat(
   const chatId = buildDirectChatId(currentUser.uid, targetUser.uid);
   const directPairKey = buildDirectPairKey(currentUser.uid, targetUser.uid);
   const chatRef = doc(db, 'chats', chatId);
-  const existing = await getDoc(chatRef);
+  let existing;
+  try {
+    existing = await getDoc(chatRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `chats/${chatId}`);
+  }
 
   if (existing.exists()) {
     const room = existing.data() as ChatRoom;
     // Ensure member doc exists for caller
     const myMemberRef = doc(db, 'chats', chatId, 'members', currentUser.uid);
-    const myMem = await getDoc(myMemberRef);
-    if (!myMem.exists()) {
-      await setDoc(myMemberRef, {
-        uid: currentUser.uid,
-        chatId,
-        role: 'member',
-        muted: false,
-        pinned: false,
-        unreadCount: 0,
-        lastReadAtMs: Date.now(),
-        lastDeliveredAtMs: Date.now(),
-        typingAtMs: 0,
-        joinedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    try {
+      const myMem = await getDoc(myMemberRef);
+      if (!myMem.exists()) {
+        await setDoc(myMemberRef, {
+          uid: currentUser.uid,
+          chatId,
+          role: 'member',
+          muted: false,
+          pinned: false,
+          unreadCount: 0,
+          lastReadAtMs: Date.now(),
+          lastDeliveredAtMs: Date.now(),
+          typingAtMs: 0,
+          joinedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch {
+      // Non-blocking if member already synced concurrently
     }
     return room;
   }
@@ -436,6 +445,7 @@ export async function createGroupChat(params: {
     ? sanitizeAvatarPhotoUrl(params.photoURL)
     : null;
 
+  const creatorSafeName = params.creator.displayName.trim().slice(0, 60) || 'Utilizador';
   const roomPayload: Record<string, unknown> = {
     chatId,
     type: 'group',
@@ -447,7 +457,7 @@ export async function createGroupChat(params: {
     lastMessagePreview: cleanTitle,
     lastMessageType: 'text',
     lastMessageSenderUid: params.creator.uid,
-    lastMessageSenderName: params.creator.displayName.slice(0, 60),
+    lastMessageSenderName: creatorSafeName,
     lastMessageAtMs: Date.now(),
     lastMessageAt: serverTimestamp(),
     createdAt: serverTimestamp(),
@@ -977,11 +987,12 @@ export async function sendChatMessage(params: {
   const messageId = safeId(`msg_${nonce}`, 120);
   const nowMs = Date.now();
 
+  const senderSafeName = sender.displayName.trim().slice(0, 60) || 'Utilizador';
   const msgPayload: Record<string, unknown> = {
     messageId,
     chatId: chat.chatId,
     senderUid: sender.uid,
-    senderName: sender.displayName.slice(0, 60),
+    senderName: senderSafeName,
     type,
     text: cleanText,
     reactions: {},
@@ -1014,19 +1025,37 @@ export async function sendChatMessage(params: {
     lastMessagePreview: previewText,
     lastMessageType: type,
     lastMessageSenderUid: sender.uid,
-    lastMessageSenderName: sender.displayName.slice(0, 60),
+    lastMessageSenderName: senderSafeName,
     lastMessageAtMs: nowMs,
     lastMessageAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  // Update sender's own read cursor
-  batch.update(doc(db, 'chats', chat.chatId, 'members', sender.uid), {
-    unreadCount: 0,
-    lastReadAtMs: nowMs,
-    typingAtMs: 0,
-    updatedAt: serverTimestamp(),
-  });
+  // Update sender's own read cursor (non-blocking if member doc exists)
+  const senderMemRef = doc(db, 'chats', chat.chatId, 'members', sender.uid);
+  const senderMemSnap = await getDoc(senderMemRef).catch(() => null);
+  if (senderMemSnap?.exists()) {
+    batch.update(senderMemRef, {
+      unreadCount: 0,
+      lastReadAtMs: nowMs,
+      typingAtMs: 0,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(senderMemRef, {
+      uid: sender.uid,
+      chatId: chat.chatId,
+      role: chat.createdBy === sender.uid ? 'owner' : 'member',
+      muted: false,
+      pinned: false,
+      unreadCount: 0,
+      lastReadAtMs: nowMs,
+      lastDeliveredAtMs: nowMs,
+      typingAtMs: 0,
+      joinedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
 
   // Notify recipients (chat notification record)
   for (const rUid of recipients.slice(0, 35)) {
@@ -1043,12 +1072,12 @@ export async function sendChatMessage(params: {
       messageId,
       type: notifType,
       senderUid: sender.uid,
-      senderName: sender.displayName.slice(0, 60),
+      senderName: senderSafeName,
       title:
         chat.type === 'group'
-          ? `${sender.displayName} · ${chat.title || 'Grupo'}`.slice(0, 100)
-          : sender.displayName.slice(0, 100),
-      body: previewText.slice(0, 240),
+          ? `${senderSafeName} · ${chat.title || 'Grupo'}`.slice(0, 100)
+          : senderSafeName.slice(0, 100),
+      body: previewText.slice(0, 240) || 'Nova mensagem',
       read: false,
       createdAt: serverTimestamp(),
     });
@@ -1309,6 +1338,31 @@ export async function markChatNotificationsReadForChat(
       // Non-blocking
     }
   }
+}
+
+export async function markAllChatNotificationsRead(uid: string): Promise<void> {
+  if (!uid) return;
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'chat_notifications'),
+        where('recipientUid', '==', uid),
+        limit(120)
+      )
+    );
+    const unread = snap.docs.filter((d) => !(d.data() as { read?: boolean }).read);
+    if (unread.length === 0) return;
+    const batch = writeBatch(db);
+    unread.slice(0, 100).forEach((d) => batch.update(d.ref, { read: true }));
+    await batch.commit();
+  } catch {
+    // Non-blocking
+  }
+}
+
+export async function markChatNotificationReadById(notifId: string): Promise<void> {
+  if (!notifId) return;
+  await updateDoc(doc(db, 'chat_notifications', notifId), { read: true }).catch(() => {});
 }
 
 // =========================================================================

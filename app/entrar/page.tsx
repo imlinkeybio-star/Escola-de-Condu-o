@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Globe, KeyRound, LogIn, Mail } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { useLanguage } from '@/components/LanguageProvider';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 function LoginFormContent() {
   const router = useRouter();
@@ -43,7 +44,7 @@ function LoginFormContent() {
       ) {
         setError(dict.auth.invalidCredentials);
       } else {
-        setError(err instanceof Error ? err.message : dict.auth.loginError);
+        setError(toUserFriendlyError(err, dict.auth.loginError));
       }
     } finally {
       setLoading(false);
@@ -63,7 +64,7 @@ function LoginFormContent() {
       await resetPassword(email);
       setInfo(dict.auth.resetEmailSent);
     } catch (err) {
-      setError(err instanceof Error ? err.message : dict.auth.resetEmailError);
+      setError(toUserFriendlyError(err, dict.auth.resetEmailError));
     } finally {
       setLoading(false);
     }
@@ -76,7 +77,7 @@ function LoginFormContent() {
       await signInWithGoogle();
       router.push(nextPath);
     } catch (err) {
-      setError(err instanceof Error ? err.message : dict.auth.googleError);
+      setError(toUserFriendlyError(err, dict.auth.googleError));
     } finally {
       setLoading(false);
     }
@@ -102,16 +103,14 @@ function LoginFormContent() {
               {dict.nav.idiomas}
             </Link>
           </div>
-          <div className="bg-white/95 rounded-xl px-2.5 py-1 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
-            <Image
-              src="/assets/aistudio/favicon_14076ff5.png"
-              alt={dict.common.brandName}
-              width={72}
-              height={48}
-              className="h-10 w-auto object-contain"
-              referrerPolicy="no-referrer"
-            />
-          </div>
+          <Image
+            src="/assets/aistudio/favicon_14076ff5.png"
+            alt={dict.common.brandName}
+            width={72}
+            height={48}
+            className="h-10 w-auto object-contain shrink-0"
+            referrerPolicy="no-referrer"
+          />
         </div>
 
         <div className="space-y-1">

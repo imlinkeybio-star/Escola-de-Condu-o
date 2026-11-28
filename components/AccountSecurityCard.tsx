@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   Copy,
   KeyRound,
@@ -19,7 +19,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  deleteUser,
   EmailAuthProvider,
   linkWithCredential,
   reauthenticateWithCredential,
@@ -31,15 +30,11 @@ import { auth, googleProvider } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useLanguage } from './LanguageProvider';
 import { tFormat } from '@/lib/i18n';
-import {
-  deleteUserAccountData,
-  factoryResetUserAccount,
-  updateUserProfileDetails,
-} from '@/lib/firestore-service';
+import { updateUserProfileDetails } from '@/lib/firestore-service';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export function AccountSecurityCard() {
-  const router = useRouter();
-  const { user, privateInfo, refreshProfile, markTotpVerified, logout } = useAuth();
+  const { user, privateInfo, refreshProfile, markTotpVerified } = useAuth();
   const { dict } = useLanguage();
 
   // Password states
@@ -66,20 +61,6 @@ export function AccountSecurityCard() {
   const [totpError, setTotpError] = useState('');
   const [totpSuccess, setTotpSuccess] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
-
-  // Factory reset states
-  const [resetPanelOpen, setResetPanelOpen] = useState(false);
-  const [resetConfirmText, setResetConfirmText] = useState('');
-  const [factoryBusy, setFactoryBusy] = useState(false);
-  const [factoryError, setFactoryError] = useState('');
-  const [factorySuccess, setFactorySuccess] = useState('');
-
-  // Account deletion states
-  const [deletePanelOpen, setDeletePanelOpen] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
 
   if (!user) return null;
 
@@ -150,7 +131,7 @@ export function AccountSecurityCard() {
       } else if (code === 'auth/requires-recent-login') {
         setPwError(dict.security.recentLoginErr);
       } else {
-        setPwError(err instanceof Error ? err.message : dict.security.genericPwErr);
+        setPwError(toUserFriendlyError(err, dict.security.genericPwErr));
       }
     } finally {
       setPwLoading(false);
@@ -169,9 +150,7 @@ export function AccountSecurityCard() {
       await sendPasswordResetEmail(auth, user.email);
       setResetMsg(tFormat(dict.security.resetSentMsg, { email: user.email }));
     } catch (err) {
-      setResetErr(
-        err instanceof Error ? err.message : dict.security.resetErrMsg
-      );
+      setResetErr(toUserFriendlyError(err, dict.security.resetErrMsg));
     } finally {
       setResetLoading(false);
     }
@@ -201,7 +180,7 @@ export function AccountSecurityCard() {
       setPendingSealedSecret(data.pendingSealedSecret);
       setOtpInput('');
     } catch (err) {
-      setTotpError(err instanceof Error ? err.message : dict.security.otpStartErr);
+      setTotpError(toUserFriendlyError(err, dict.security.otpStartErr));
     } finally {
       setSetupLoading(false);
     }
@@ -247,9 +226,7 @@ export function AccountSecurityCard() {
       setOtpInput('');
       setTotpSuccess(dict.security.otpEnabledSuccess);
     } catch (err) {
-      setTotpError(
-        err instanceof Error ? err.message : dict.otpGate.verifyError
-      );
+      setTotpError(toUserFriendlyError(err, dict.otpGate.verifyError));
     } finally {
       setTotpBusy(false);
     }
@@ -292,9 +269,7 @@ export function AccountSecurityCard() {
       setDisableOtpInput('');
       setTotpSuccess(dict.security.otpDisabledSuccess);
     } catch (err) {
-      setTotpError(
-        err instanceof Error ? err.message : dict.security.otpDisableErr
-      );
+      setTotpError(toUserFriendlyError(err, dict.security.otpDisableErr));
     } finally {
       setTotpBusy(false);
     }
@@ -308,86 +283,6 @@ export function AccountSecurityCard() {
       setTimeout(() => setCopiedKey(false), 2000);
     } catch {
       // Fallback ignored
-    }
-  };
-
-  const handleFactoryReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setFactoryError('');
-    setFactorySuccess('');
-    const normalizedInput = resetConfirmText.trim().toUpperCase();
-    const expectedWord = dict.security.factoryWord.trim().toUpperCase();
-    if (normalizedInput !== expectedWord && normalizedInput !== 'ZERAR') {
-      setFactoryError(dict.security.factoryMismatchErr);
-      return;
-    }
-    setFactoryBusy(true);
-    try {
-      await factoryResetUserAccount(user.uid);
-      await refreshProfile();
-      setResetConfirmText('');
-      setResetPanelOpen(false);
-      setFactorySuccess(dict.security.factorySuccessMsg);
-    } catch (err) {
-      setFactoryError(
-        err instanceof Error ? err.message : dict.security.factoryErrMsg
-      );
-    } finally {
-      setFactoryBusy(false);
-    }
-  };
-
-  const handleDeleteAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setDeleteError('');
-    const normalizedInput = deleteConfirmText.trim().toUpperCase();
-    const expectedWord = dict.security.deleteWord.trim().toUpperCase();
-    if (normalizedInput !== expectedWord && normalizedInput !== 'ELIMINAR') {
-      setDeleteError(dict.security.deleteMismatchErr);
-      return;
-    }
-
-    setDeleteBusy(true);
-    try {
-      // Reauthenticate BEFORE removing Firestore documents so Auth deleteUser never fails mid-way
-      const hasGoogle = user.providerData.some(
-        (p) => p.providerId === 'google.com'
-      );
-      if (hasPasswordProvider && user.email && deletePassword) {
-        const cred = EmailAuthProvider.credential(user.email, deletePassword);
-        await reauthenticateWithCredential(user, cred);
-      } else if (hasGoogle) {
-        await reauthenticateWithPopup(user, googleProvider);
-      } else if (hasPasswordProvider) {
-        setDeleteError(dict.security.deletePwRequired);
-        setDeleteBusy(false);
-        return;
-      }
-
-      await deleteUserAccountData(user.uid);
-      await deleteUser(user);
-      await logout().catch(() => {});
-      router.push('/');
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code || '';
-      if (
-        code === 'auth/wrong-password' ||
-        code === 'auth/invalid-credential'
-      ) {
-        setDeleteError(dict.security.wrongPwErr);
-      } else if (code === 'auth/requires-recent-login') {
-        setDeleteError(dict.security.deleteRecentLogin);
-      } else if (code === 'auth/popup-closed-by-user') {
-        setDeleteError(dict.security.deleteGoogleCancelled);
-      } else {
-        setDeleteError(
-          err instanceof Error ? err.message : dict.security.deleteErrMsg
-        );
-      }
-    } finally {
-      setDeleteBusy(false);
     }
   };
 
@@ -686,166 +581,56 @@ export function AccountSecurityCard() {
         )}
       </div>
 
-      {/* Factory Reset & Permanent Account Deletion */}
-      <div className="bg-[#111520] border border-red-500/25 rounded-2xl p-5 sm:p-6 space-y-5 min-w-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-          <div className="min-w-0">
-            <h3 className="text-base font-bold text-white">
-              {dict.security.dangerTitle}
-            </h3>
-            <p className="text-xs text-slate-400">{dict.security.dangerDesc}</p>
-          </div>
-        </div>
-
-        {factoryError && (
-          <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
-            {factoryError}
-          </div>
-        )}
-        {factorySuccess && (
-          <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200 break-words">
-            {factorySuccess}
-          </div>
-        )}
-        {deleteError && (
-          <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-xs text-red-200 break-words">
-            {deleteError}
-          </div>
-        )}
-
-        {/* Factory Reset Option */}
-        <div className="p-4 rounded-xl bg-[#090C14] border border-white/10 space-y-3 min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Dedicated Risk Zone Navigation Card */}
+      <div className="bg-[#111520] border border-red-500/25 rounded-2xl p-5 sm:p-6 space-y-4 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <p className="text-sm font-bold text-white">
-                {dict.security.factoryTitle}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {dict.security.factoryDesc}
+              <h3 className="text-base font-bold text-white">
+                {dict.security.riskZonePageTitle}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                {dict.security.riskZonePageDesc}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setResetPanelOpen((p) => !p);
-                setDeletePanelOpen(false);
-                setFactoryError('');
-              }}
-              className="min-h-[40px] px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-              {resetPanelOpen ? dict.common.cancel : dict.security.factoryBtn}
-            </button>
           </div>
-
-          {resetPanelOpen && (
-            <form
-              onSubmit={handleFactoryReset}
-              className="pt-3 border-t border-white/[0.08] space-y-3"
-            >
-              <label className="block text-xs text-slate-300">
-                {tFormat(dict.security.factoryPrompt, {
-                  word: dict.security.factoryWord,
-                })}
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <input
-                  type="text"
-                  required
-                  value={resetConfirmText}
-                  onChange={(e) => setResetConfirmText(e.target.value)}
-                  placeholder={dict.security.factoryWord}
-                  className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-amber-500"
-                />
-                <button
-                  type="submit"
-                  disabled={factoryBusy}
-                  className="min-h-[42px] px-4 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
-                >
-                  {factoryBusy
-                    ? dict.security.factoryBusyBtn
-                    : dict.security.factoryConfirmBtn}
-                </button>
-              </div>
-            </form>
-          )}
+          <Link
+            href="/definicoes/risco"
+            className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shrink-0 whitespace-nowrap"
+          >
+            <ShieldAlert className="w-4 h-4 shrink-0" />
+            {dict.security.openRiskZoneBtn}
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+          </Link>
         </div>
 
-        {/* Delete Account Option */}
-        <div className="p-4 rounded-xl bg-[#090C14] border border-red-500/25 space-y-3 min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-red-300">
-                {dict.security.deleteTitle}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {dict.security.deleteDesc}
-              </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <Link
+            href="/definicoes/risco"
+            className="p-3.5 rounded-xl bg-[#090C14] border border-amber-500/25 hover:border-amber-500/50 transition-colors flex items-center justify-between gap-3 min-w-0"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="text-xs font-bold text-amber-200 truncate">
+                {dict.security.factoryBtn}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setDeletePanelOpen((p) => !p);
-                setResetPanelOpen(false);
-                setDeleteError('');
-              }}
-              className="min-h-[40px] px-4 rounded-xl bg-red-600/25 hover:bg-red-600/40 border border-red-500/40 text-red-200 text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Trash2 className="w-3.5 h-3.5 shrink-0" />
-              {deletePanelOpen ? dict.common.cancel : dict.security.deleteBtn}
-            </button>
-          </div>
+            <ArrowRight className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          </Link>
 
-          {deletePanelOpen && (
-            <form
-              onSubmit={handleDeleteAccount}
-              className="pt-3 border-t border-white/[0.08] space-y-3"
-            >
-              {hasPasswordProvider && (
-                <div>
-                  <label className="block text-xs text-slate-300 mb-1">
-                    {dict.security.deletePwLabel}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white focus:outline-none focus:border-red-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">
-                  {tFormat(dict.security.deletePrompt, {
-                    word: dict.security.deleteWord,
-                  })}
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <input
-                    type="text"
-                    required
-                    value={deleteConfirmText}
-                    onChange={(e) => setDeleteConfirmText(e.target.value)}
-                    placeholder={dict.security.deleteWord}
-                    className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-[#111520] border border-white/15 text-sm text-white uppercase font-mono-tabular focus:outline-none focus:border-red-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={deleteBusy}
-                    className="min-h-[42px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
-                  >
-                    {deleteBusy
-                      ? dict.security.deleteBusyBtn
-                      : dict.security.deleteConfirmBtn}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+          <Link
+            href="/definicoes/risco"
+            className="p-3.5 rounded-xl bg-[#090C14] border border-red-500/25 hover:border-red-500/50 transition-colors flex items-center justify-between gap-3 min-w-0"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-xs font-bold text-red-200 truncate">
+                {dict.security.deleteBtn}
+              </span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          </Link>
         </div>
       </div>
     </div>

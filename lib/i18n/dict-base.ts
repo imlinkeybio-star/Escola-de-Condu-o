@@ -696,6 +696,17 @@ export const ptDict = {
     deleteRecentLogin:
       'Por segurança, termina a sessão e volta a entrar antes de eliminar a conta.',
     deleteErrMsg: 'Não foi possível eliminar a conta.',
+    riskZonePageTitle: 'Zona de Risco da Conta',
+    riskZonePageDesc:
+      'Ações críticas protegidas com verificação obrigatória via Google Authenticator (2FA).',
+    openRiskZoneBtn: 'Abrir Zona de Risco',
+    backToSettingsBtn: 'Voltar às Definições',
+    totpRequiredBannerTitle: 'Google Authenticator obrigatório',
+    totpRequiredBannerDesc:
+      'Para repor a conta de fábrica ou eliminar permanentemente a tua conta, ativa e confirma o Google Authenticator abaixo.',
+    otpInputLabel: 'Código atual de 6 dígitos do Google Authenticator:',
+    otpRequiredErr:
+      'Insere o código de 6 dígitos do Google Authenticator para confirmar esta operação.',
   },
   ads: {
     sponsored: 'Patrocinado',

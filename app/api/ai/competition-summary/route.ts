@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
 import { generateCompetitionSummary } from '@/lib/server/gemini';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,8 +40,13 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Erro em /api/ai/competition-summary:', err);
     return NextResponse.json(
-      { error: 'Falha ao gerar resumo final da competição.' },
-      { status: 500 }
+      {
+        error: toUserFriendlyError(
+          err,
+          'Não foi possível gerar o resumo final da competição.'
+        ),
+      },
+      { status: 503 }
     );
   }
 }

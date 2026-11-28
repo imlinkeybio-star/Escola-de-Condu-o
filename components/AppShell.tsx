@@ -48,6 +48,15 @@ import {
   clearAllUserNotifications,
   markUserNotificationsAndBroadcastsRead,
 } from '@/lib/firestore-service';
+import {
+  markAllChatNotificationsRead,
+  markChatNotificationReadById,
+} from '@/lib/chat-service';
+import {
+  playLinkedInBellChime,
+  registerNotificationAudioUnlock,
+} from '@/lib/sound-effects';
+import { toUserFriendlyError } from '@/lib/error-messages';
 import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
@@ -99,6 +108,7 @@ export function AppShell({
   const [otpCode, setOtpCode] = useState('');
   const [otpSubmitting, setOtpSubmitting] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [chatNotifications, setChatNotifications] = useState<ChatNotificationRecord[]>([]);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [chatPresence, setChatPresence] = useState<ChatPresence | null>(null);
   const seenChatNotifsRef = React.useRef<Set<string> | null>(null);
@@ -107,6 +117,10 @@ export function AppShell({
   useEffect(() => {
     pathnameRef.current = pathname;
   }, [pathname]);
+
+  useEffect(() => {
+    return registerNotificationAudioUnlock();
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -133,8 +147,14 @@ export function AppShell({
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const list = snap.docs.map((d) => d.data() as ChatNotificationRecord);
+        const list = snap.docs
+          .map((d) => d.data() as ChatNotificationRecord)
+          .sort(
+            (a, b) =>
+              getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt)
+          );
         const unread = list.filter((n) => !n.read);
+        setChatNotifications(list.slice(0, 25));
         setChatUnreadCount(unread.length);
 
         if (seenChatNotifsRef.current === null) {
@@ -145,6 +165,7 @@ export function AppShell({
         const allowAll = chatPresence?.notificationsEnabled ?? true;
         const allowGroup = chatPresence?.groupNotificationsEnabled ?? true;
         const showPrev = chatPresence?.showPreviews ?? true;
+        let shouldChime = false;
 
         for (const n of unread) {
           if (seenChatNotifsRef.current.has(n.notifId)) continue;
@@ -152,9 +173,11 @@ export function AppShell({
 
           if (!allowAll) continue;
           if (n.type === 'group_join' && !allowGroup) continue;
-          if (pathnameRef.current.startsWith('/chat')) continue;
+
+          shouldChime = true;
 
           if (
+            !pathnameRef.current.startsWith('/chat') &&
             typeof window !== 'undefined' &&
             'Notification' in window &&
             Notification.permission === 'granted'
@@ -167,6 +190,10 @@ export function AppShell({
               // Non-blocking
             }
           }
+        }
+
+        if (shouldChime) {
+          playLinkedInBellChime();
         }
       },
       () => {}
@@ -243,6 +270,10 @@ export function AppShell({
     const ms = getTimestampMillis(b.createdAt);
     return ms === 0 || ms > clearedBeforeMs;
   });
+  const visibleChatNotifications = chatNotifications.filter((n) => {
+    const ms = getTimestampMillis(n.createdAt);
+    return ms === 0 || ms > clearedBeforeMs;
+  });
 
   const unreadPersonalCount = visibleNotifications.filter((n) => !n.read).length;
   const unreadBroadcastCount = visibleBroadcasts.filter((b) => {
@@ -252,7 +283,9 @@ export function AppShell({
     );
     return latestMs === 0 ? broadcastsReadAtMs === 0 : latestMs > broadcastsReadAtMs;
   }).length;
-  const totalAlertBadge = unreadPersonalCount + unreadBroadcastCount;
+  const unreadChatBadgeCount = visibleChatNotifications.filter((n) => !n.read).length;
+  const totalAlertBadge =
+    unreadPersonalCount + unreadBroadcastCount + unreadChatBadgeCount;
 
   const markAllRead = async () => {
     if (!user) return;
@@ -262,7 +295,11 @@ export function AppShell({
       .filter((n) => !n.read && n.id)
       .map((n) => n.id!);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    await markUserNotificationsAndBroadcastsRead(user.uid, unreadIds);
+    setChatNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    await Promise.all([
+      markUserNotificationsAndBroadcastsRead(user.uid, unreadIds),
+      markAllChatNotificationsRead(user.uid),
+    ]);
   };
 
   const handleClearAllNotifications = async () => {
@@ -272,8 +309,12 @@ export function AppShell({
     setOptimisticClearedAtMs(nowMs);
     setOptimisticReadAtMs(nowMs);
     setNotifications([]);
+    setChatNotifications([]);
     try {
-      await clearAllUserNotifications(user.uid);
+      await Promise.all([
+        clearAllUserNotifications(user.uid),
+        markAllChatNotificationsRead(user.uid),
+      ]);
     } finally {
       setClearingNotifs(false);
     }
@@ -357,9 +398,7 @@ export function AppShell({
       setOtpCode('');
       markTotpVerified(true);
     } catch (err) {
-      setOtpError(
-        err instanceof Error ? err.message : dict.otpGate.verifyError
-      );
+      setOtpError(toUserFriendlyError(err, dict.otpGate.verifyError));
     } finally {
       setOtpSubmitting(false);
     }
@@ -371,13 +410,13 @@ export function AppShell({
       <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:start-0 bg-[#0D101A] border-e border-white/[0.08] z-30">
         <div className="h-16 px-4 flex items-center gap-3 border-b border-white/[0.08]">
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 shrink-0 flex items-center justify-center">
+            <div className="shrink-0 flex items-center justify-center">
               <Image
                 src="/assets/aistudio/favicon_14076ff5.png"
                 alt={dict.common.brandName}
                 width={54}
                 height={36}
-                className="h-8 w-auto object-contain"
+                className="h-9 w-auto object-contain"
                 referrerPolicy="no-referrer"
               />
             </div>
@@ -477,6 +516,25 @@ export function AppShell({
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {user ? (
               <>
+                {/* Clickable Topbar Chat Icon */}
+                <Link
+                  href="/chat"
+                  aria-label={dict.nav.liveChat}
+                  title={dict.nav.liveChat}
+                  className={`min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center relative transition-colors ${
+                    pathname.startsWith('/chat')
+                      ? 'bg-[#22C55E]/20 text-[#22C55E] border border-[#22C55E]/35'
+                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <MessageSquareText className="w-5 h-5" />
+                  {chatUnreadCount > 0 && (
+                    <span className="absolute top-1 end-1 min-w-[16px] h-4 px-1 rounded-full bg-[#22C55E] text-black text-[10px] font-black flex items-center justify-center tabular-nums">
+                      {chatUnreadCount > 9 ? '9+' : chatUnreadCount}
+                    </span>
+                  )}
+                </Link>
+
                 <div className="relative">
                   <button
                     onClick={() => {
@@ -509,7 +567,8 @@ export function AppShell({
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {(visibleBroadcasts.length > 0 ||
-                              visibleNotifications.length > 0) && (
+                              visibleNotifications.length > 0 ||
+                              visibleChatNotifications.length > 0) && (
                               <button
                                 type="button"
                                 onClick={() => void handleClearAllNotifications()}
@@ -540,7 +599,8 @@ export function AppShell({
                         </div>
 
                         {visibleBroadcasts.length === 0 &&
-                        visibleNotifications.length === 0 ? (
+                        visibleNotifications.length === 0 &&
+                        visibleChatNotifications.length === 0 ? (
                           <div className="py-6 text-center space-y-1.5">
                             <CheckCheck className="w-6 h-6 text-emerald-400 mx-auto" />
                             <p className="text-xs text-slate-400">
@@ -549,6 +609,36 @@ export function AppShell({
                           </div>
                         ) : (
                           <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pe-0.5">
+                            {visibleChatNotifications.slice(0, 8).map((cn) => (
+                              <div
+                                key={cn.notifId}
+                                onClick={() => {
+                                  void markChatNotificationReadById(cn.notifId);
+                                  setNotifOpen(false);
+                                  router.push(
+                                    `/chat?chatId=${encodeURIComponent(cn.chatId)}`
+                                  );
+                                }}
+                                className="p-2.5 rounded-xl bg-[#22C55E]/10 hover:bg-[#22C55E]/15 border border-[#22C55E]/25 cursor-pointer space-y-1 min-w-0"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#22C55E]">
+                                    <MessageSquareText className="w-3 h-3" />
+                                    LIVE CHAT · SMS
+                                  </span>
+                                  {!cn.read && (
+                                    <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                                  )}
+                                </div>
+                                <p className="text-xs font-bold text-white break-words">
+                                  {cn.title}
+                                </p>
+                                <p className="text-xs text-slate-300 break-words">
+                                  {cn.body}
+                                </p>
+                              </div>
+                            ))}
+
                             {visibleBroadcasts.slice(0, 5).map((b) => {
                               const safeLink = sanitizeSafeUrl(b.linkUrl);
                               return (
@@ -757,13 +847,13 @@ export function AppShell({
           <div className="relative w-72 max-w-[85vw] bg-[#0D101A] border-e border-white/10 h-full flex flex-col z-10 p-4">
             <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="bg-white/95 rounded-xl px-1.5 py-0.5 shadow-sm ring-1 ring-white/15 flex items-center justify-center shrink-0">
+                <div className="flex items-center justify-center shrink-0">
                   <Image
                     src="/assets/aistudio/favicon_14076ff5.png"
                     alt={dict.common.brandName}
                     width={54}
                     height={36}
-                    className="h-8 w-auto object-contain"
+                    className="h-9 w-auto object-contain"
                     referrerPolicy="no-referrer"
                   />
                 </div>

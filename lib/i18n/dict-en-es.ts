@@ -688,6 +688,17 @@ export const enDict = {
     deleteRecentLogin:
       'For security, sign out and sign in again before deleting your account.',
     deleteErrMsg: 'Could not delete the account.',
+    riskZonePageTitle: 'Account Risk Zone',
+    riskZonePageDesc:
+      'Critical actions protected by mandatory Google Authenticator (2FA) verification.',
+    openRiskZoneBtn: 'Open Risk Zone',
+    backToSettingsBtn: 'Back to Settings',
+    totpRequiredBannerTitle: 'Google Authenticator required',
+    totpRequiredBannerDesc:
+      'To factory reset or permanently delete your account, enable and verify Google Authenticator below first.',
+    otpInputLabel: 'Current 6-digit Google Authenticator code:',
+    otpRequiredErr:
+      'Enter your 6-digit Google Authenticator code to authorize this action.',
   },
   ads: {
     sponsored: 'Sponsored',
@@ -1747,6 +1758,17 @@ export const esDict = {
     deleteRecentLogin:
       'Por seguridad, cierra sesión y vuelve a entrar antes de eliminar tu cuenta.',
     deleteErrMsg: 'No se pudo eliminar la cuenta.',
+    riskZonePageTitle: 'Zona de Riesgo de la Cuenta',
+    riskZonePageDesc:
+      'Acciones críticas protegidas con verificación obligatoria mediante Google Authenticator (2FA).',
+    openRiskZoneBtn: 'Abrir Zona de Riesgo',
+    backToSettingsBtn: 'Volver a Ajustes',
+    totpRequiredBannerTitle: 'Google Authenticator obligatorio',
+    totpRequiredBannerDesc:
+      'Para restablecer de fábrica o eliminar permanentemente tu cuenta, activa y verifica Google Authenticator abajo primero.',
+    otpInputLabel: 'Código actual de 6 dígitos de Google Authenticator:',
+    otpRequiredErr:
+      'Introduce el código de 6 dígitos de Google Authenticator para confirmar esta operación.',
   },
   ads: {
     sponsored: 'Patrocinado',

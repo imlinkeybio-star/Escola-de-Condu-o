@@ -40,6 +40,7 @@ import {
   translateAchievement,
   translateTier,
 } from '@/lib/i18n';
+import { toUserFriendlyError } from '@/lib/error-messages';
 import defaultAvatarImg from '@/src/assets/images/avatar_driver_default_1795615140872.jpg';
 
 function toMillis(ts: unknown): number {
@@ -188,11 +189,11 @@ export default function PerfilPage() {
       setPhotoDraft(compressed);
       setPhotoTouched(true);
     } catch (err) {
-      setEditError(
-        err instanceof Error && err.message !== 'Image too large'
-          ? err.message
-          : dict.profile.photoError
-      );
+      const friendly =
+        err instanceof Error && err.message === 'Image too large'
+          ? dict.profile.photoError
+          : toUserFriendlyError(err, dict.profile.photoError);
+      setEditError(friendly);
     } finally {
       setPhotoBusy(false);
     }
@@ -238,9 +239,7 @@ export default function PerfilPage() {
       setEditing(false);
       setEditSuccess(dict.profile.updateSuccess);
     } catch (err) {
-      setEditError(
-        err instanceof Error ? err.message : dict.profile.saveError
-      );
+      setEditError(toUserFriendlyError(err, dict.profile.saveError));
     } finally {
       setSaving(false);
     }

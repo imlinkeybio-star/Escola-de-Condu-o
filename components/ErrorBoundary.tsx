@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 interface State {
   hasError: boolean;
@@ -20,7 +21,10 @@ export class ErrorBoundary extends React.Component<
   static getDerivedStateFromError(error: Error): State {
     return {
       hasError: true,
-      message: error?.message || 'Ocorreu um erro inesperado na aplicação.',
+      message: toUserFriendlyError(
+        error,
+        'Ocorreu um erro inesperado na aplicação. Tenta recarregar a página.'
+      ),
     };
   }
 
@@ -30,11 +34,10 @@ export class ErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      let friendly = this.state.message;
-      if (friendly.includes('Missing or insufficient permissions')) {
-        friendly =
-          'Permissão insuficiente no Firebase. Verifica se a tua sessão está ativa e se a conta tem autorização para esta operação.';
-      }
+      const friendly = toUserFriendlyError(
+        this.state.message,
+        'Ocorreu uma falha de sincronização. Atualiza a página e tenta novamente.'
+      );
       return (
         <div className="min-h-[60vh] flex items-center justify-center p-6">
           <div className="max-w-md w-full bg-[#12161F] border border-white/10 rounded-2xl p-6 text-center space-y-4">
@@ -42,7 +45,7 @@ export class ErrorBoundary extends React.Component<
               <AlertTriangle className="w-6 h-6" />
             </div>
             <h2 className="text-xl font-bold text-white">
-              Ocorreu uma falha de sincronização
+              Ocorreu um contratempo
             </h2>
             <p className="text-sm text-zinc-400 break-words">{friendly}</p>
             <button

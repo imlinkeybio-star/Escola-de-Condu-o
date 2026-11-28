@@ -453,3 +453,101 @@ Return JSON matching {"questions": [...]} with exactly ${count} valid questions.
     )
   );
 }
+
+export async function callOpenAITextCompletion(params: {
+  systemInstruction: string;
+  prompt: string;
+  jsonMode?: boolean;
+  timeoutMs?: number;
+}): Promise<string> {
+  const { apiKey, model, baseUrl } = getOpenAIConfig();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), params.timeoutMs ?? 20000);
+  try {
+    const bodyPayload: Record<string, unknown> = {
+      model,
+      messages: [
+        { role: 'system', content: params.systemInstruction },
+        { role: 'user', content: params.prompt },
+      ],
+    };
+    if (params.jsonMode) {
+      bodyPayload.response_format = { type: 'json_object' };
+    }
+    if (supportsTemperature(model)) {
+      bodyPayload.temperature = 0.7;
+    }
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(bodyPayload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new OpenAIQuestionError(
+        'O serviço de inteligência artificial está temporariamente ocupado. Tenta novamente dentro de instantes.',
+        res.status >= 500 ? 503 : 502,
+        'OPENAI_TEXT_ERROR'
+      );
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
+    const content = json.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new OpenAIQuestionError('Resposta vazia do assistente.', 502);
+    }
+    return content;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function callOpenAISpeech(
+  text: string
+): Promise<{ audioBase64: string; mimeType: string; provider: string } | null> {
+  const apiKey = (process.env.GPT_API_KEY || '').trim();
+  if (!apiKey || apiKey === 'MY_GPT_API_KEY') return null;
+  const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const ttsModels = ['gpt-4o-mini-tts', 'tts-1'];
+
+  for (const model of ttsModels) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 14000);
+    try {
+      const res = await fetch(`${baseUrl}/audio/speech`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          voice: 'nova',
+          input: text.slice(0, 600),
+          response_format: 'mp3',
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 100) {
+        return {
+          audioBase64: buf.toString('base64'),
+          mimeType: 'audio/mp3',
+          provider: 'openai-tts',
+        };
+      }
+    } catch {
+      // Try next TTS fallback
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
+

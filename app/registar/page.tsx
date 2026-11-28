@@ -8,6 +8,7 @@ import { ArrowLeft, Globe, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { useLanguage } from '@/components/LanguageProvider';
 import { ANGOLA_PROVINCES } from '@/lib/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export default function RegistarPage() {
   const router = useRouter();
@@ -50,7 +51,7 @@ export default function RegistarPage() {
       } else if (code === 'auth/email-already-in-use') {
         setError(dict.auth.emailInUse);
       } else {
-        setError(err instanceof Error ? err.message : dict.auth.registerError);
+        setError(toUserFriendlyError(err, dict.auth.registerError));
       }
     } finally {
       setLoading(false);
@@ -64,9 +65,7 @@ export default function RegistarPage() {
       await signInWithGoogle();
       router.push('/dashboard');
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.auth.googleRegisterError
-      );
+      setError(toUserFriendlyError(err, dict.auth.googleRegisterError));
     } finally {
       setLoading(false);
     }
@@ -92,16 +91,14 @@ export default function RegistarPage() {
               {dict.nav.idiomas}
             </Link>
           </div>
-          <div className="bg-white/95 rounded-xl px-2.5 py-1 shadow-sm ring-1 ring-white/15 flex items-center justify-center">
-            <Image
-              src="/assets/aistudio/favicon_14076ff5.png"
-              alt={dict.common.brandName}
-              width={72}
-              height={48}
-              className="h-10 w-auto object-contain"
-              referrerPolicy="no-referrer"
-            />
-          </div>
+          <Image
+            src="/assets/aistudio/favicon_14076ff5.png"
+            alt={dict.common.brandName}
+            width={72}
+            height={48}
+            className="h-10 w-auto object-contain shrink-0"
+            referrerPolicy="no-referrer"
+          />
         </div>
 
         <div className="space-y-1">

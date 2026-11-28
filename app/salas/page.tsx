@@ -40,6 +40,7 @@ import {
   translateCategory,
   translateDifficulty,
 } from '@/lib/i18n';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 const DIFFICULTIES: DifficultyLevel[] = [
   'Iniciante',
@@ -113,7 +114,7 @@ function SalasContent() {
       setShowCreate(false);
       router.push(`/sala/${room.roomId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : dict.salas.createError);
+      setError(toUserFriendlyError(err, dict.salas.createError));
     } finally {
       setCreating(false);
     }
@@ -139,7 +140,7 @@ function SalasContent() {
       await deleteCompetitionRoom(confirmDeleteRoom.roomId, isAdmin || isOwner);
       setConfirmDeleteRoom(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : dict.salas.deleteError);
+      setError(toUserFriendlyError(err, dict.salas.deleteError));
     } finally {
       setDeletingRoomId(null);
     }

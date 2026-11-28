@@ -6,6 +6,7 @@ import {
 import { generateAiBroadcastContent } from '@/lib/server/gemini';
 import { isAppOwnerEmail } from '@/lib/url-safety';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,12 +52,12 @@ export async function POST(req: NextRequest) {
     console.error('Erro em /api/ai/generate-notification:', err);
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Erro ao gerar notificação com a IA.',
+        error: toUserFriendlyError(
+          err,
+          'Não foi possível gerar o conteúdo agora. Tenta novamente dentro de instantes.'
+        ),
       },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

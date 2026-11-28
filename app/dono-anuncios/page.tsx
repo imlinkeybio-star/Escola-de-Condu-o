@@ -48,6 +48,7 @@ import {
 } from '@/lib/url-safety';
 import { useLanguage } from '@/components/LanguageProvider';
 import { tFormat } from '@/lib/i18n';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 function toMillis(ts: unknown): number {
   if (!ts) return 0;
@@ -188,7 +189,7 @@ export default function DonoAnunciosPage() {
       setAiGenerated(true);
       setFeedback(dict.donoAnuncios.aiGeneratedSuccess);
     } catch (err) {
-      setError(err instanceof Error ? err.message : dict.donoAnuncios.aiGenError);
+      setError(toUserFriendlyError(err, dict.donoAnuncios.aiGenError));
     } finally {
       setGeneratingAi(false);
     }
@@ -238,9 +239,7 @@ export default function DonoAnunciosPage() {
       setAiGenerated(false);
       setFeedback(tFormat(dict.donoAnuncios.publishedToast, { title: created.title }));
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : dict.donoAnuncios.publishError
-      );
+      setError(toUserFriendlyError(err, dict.donoAnuncios.publishError));
     } finally {
       setSaving(false);
     }

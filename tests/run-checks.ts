@@ -16,6 +16,7 @@ import {
   reassembleChunks,
   splitBufferIntoChunks,
 } from '../lib/chat-service';
+import { toUserFriendlyError } from '../lib/error-messages';
 
 async function run() {
   // 1) Ad Duration Hardening Checks (Part 1)
@@ -133,6 +134,35 @@ async function run() {
       assert.equal(out[i * 4 + 3], 200);
     }
   }
+
+  // 5) User-Friendly Error Sanitization Checks
+  const firestorePermJson = JSON.stringify({
+    error: 'Missing or insufficient permissions.',
+    authInfo: { userId: 'abc', email: 'user@example.com' },
+    operationType: 'write',
+    path: 'rooms/sala_1/player_questions',
+  });
+  const friendlyPerm = toUserFriendlyError(new Error(firestorePermJson));
+  assert.equal(friendlyPerm.includes('{'), false);
+  assert.equal(friendlyPerm.includes('authInfo'), false);
+  assert.equal(friendlyPerm.includes('operationType'), false);
+  assert.equal(friendlyPerm.length > 10, true);
+
+  const gemini503Json = JSON.stringify({
+    error: {
+      code: 503,
+      message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary.',
+      status: 'UNAVAILABLE',
+    },
+  });
+  const friendly503 = toUserFriendlyError(new Error(gemini503Json));
+  assert.equal(friendly503.includes('{'), false);
+  assert.equal(friendly503.includes('503'), false);
+  assert.equal(friendly503.includes('UNAVAILABLE'), false);
+  assert.equal(friendly503.length > 10, true);
+
+  const cleanMsg = 'O código do Google Authenticator está incorreto.';
+  assert.equal(toUserFriendlyError(cleanMsg), cleanMsg);
 
   console.log('ALL UNIT CHECKS PASSED');
 }

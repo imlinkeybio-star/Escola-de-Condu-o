@@ -465,15 +465,22 @@ export async function joinCompetitionRoom(
 
       const partSnap = await tx.get(participantRef);
       if (partSnap.exists()) {
-        const existingPart = partSnap.data() as RoomParticipant;
+        const existingPart = partSnap.data() as Partial<RoomParticipant>;
         // If participant already finished or room hit 100 finishers, keep read-only access
         if (existingPart.status === 'FINISHED' || isRoomClosed) {
           return;
         }
-        tx.update(participantRef, {
+        const patch: Record<string, unknown> = {
           online: true,
           lastActiveAt: serverTimestamp(),
-        });
+        };
+        if (typeof existingPart.lastScoredQuestionIndex !== 'number') {
+          patch.lastScoredQuestionIndex = -1;
+        }
+        if (typeof existingPart.questionsGenerated !== 'boolean') {
+          patch.questionsGenerated = false;
+        }
+        tx.update(participantRef, patch);
         return;
       }
 
@@ -767,7 +774,7 @@ export async function revealAndScorePlayerRound(params: {
 
   const rDocId = `${user.uid}_${params.question.questionIndex}`;
   const revealedRef = doc(db, 'rooms', params.room.roomId, 'player_revealed', rDocId);
-  const existingRevealed = await getDoc(revealedRef);
+  let existingRevealed = await getDoc(revealedRef);
 
   if (!existingRevealed.exists()) {
     try {
@@ -782,7 +789,14 @@ export async function revealAndScorePlayerRound(params: {
         revealedAt: serverTimestamp(),
       });
     } catch (err) {
-      console.warn('Concorrência na escrita de revelação:', err);
+      existingRevealed = await getDoc(revealedRef);
+      if (!existingRevealed.exists()) {
+        handleFirestoreError(
+          err,
+          OperationType.CREATE,
+          `rooms/${params.room.roomId}/player_revealed/${rDocId}`
+        );
+      }
     }
   }
 
@@ -1436,13 +1450,14 @@ export async function markUserNotificationsAndBroadcastsRead(
   ]);
 }
 
-async function deleteOwnedDocsInCollection(
+async function deleteDocsByField(
   collectionName: string,
-  uid: string
+  field: string,
+  value: string
 ): Promise<void> {
   const q = query(
     collection(db, collectionName),
-    where('uid', '==', uid),
+    where(field, '==', value),
     limit(450)
   );
   // Loop until all matching user docs are cleared
@@ -1456,10 +1471,38 @@ async function deleteOwnedDocsInCollection(
   }
 }
 
+async function deleteOwnedDocsInCollection(
+  collectionName: string,
+  uid: string
+): Promise<void> {
+  await deleteDocsByField(collectionName, 'uid', uid);
+}
+
+async function deleteUserSubcollectionDocs(
+  uid: string,
+  subcollectionName: string
+): Promise<void> {
+  const q = query(
+    collection(db, 'users', uid, subcollectionName),
+    limit(450)
+  );
+  for (let pass = 0; pass < 10; pass += 1) {
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    if (snap.size < 450) break;
+  }
+}
+
 export async function clearAllUserNotifications(uid: string): Promise<void> {
   if (!uid) return;
   const nowMs = Date.now();
-  await deleteOwnedDocsInCollection('notifications', uid);
+  await Promise.all([
+    deleteOwnedDocsInCollection('notifications', uid),
+    deleteDocsByField('chat_notifications', 'recipientUid', uid).catch(() => {}),
+  ]);
   try {
     await updateDoc(doc(db, 'users', uid, 'private', 'info'), {
       notificationsClearedBeforeMs: nowMs,
@@ -1483,6 +1526,8 @@ export async function factoryResetUserAccount(uid: string): Promise<void> {
     deleteOwnedDocsInCollection('achievements', uid),
     deleteOwnedDocsInCollection('notifications', uid),
     deleteOwnedDocsInCollection('weekly_rankings', uid),
+    deleteDocsByField('chat_notifications', 'recipientUid', uid).catch(() => {}),
+    deleteUserSubcollectionDocs(uid, 'chat_favorites').catch(() => {}),
     deleteDoc(doc(db, 'global_rankings', uid)).catch(() => {}),
   ]);
 
@@ -1531,6 +1576,9 @@ export async function deleteUserAccountData(uid: string): Promise<void> {
     deleteOwnedDocsInCollection('achievements', uid),
     deleteOwnedDocsInCollection('notifications', uid),
     deleteOwnedDocsInCollection('weekly_rankings', uid),
+    deleteDocsByField('chat_notifications', 'recipientUid', uid).catch(() => {}),
+    deleteUserSubcollectionDocs(uid, 'chat_favorites').catch(() => {}),
+    deleteDoc(doc(db, 'chat_presence', uid)).catch(() => {}),
     deleteDoc(doc(db, 'global_rankings', uid)).catch(() => {}),
     deleteDoc(doc(db, 'users', uid, 'private', 'info')).catch(() => {}),
   ]);

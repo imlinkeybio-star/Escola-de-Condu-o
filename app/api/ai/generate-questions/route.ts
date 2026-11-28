@@ -6,6 +6,7 @@ import {
 } from '@/lib/server/openai';
 import { sealQuestionAnswer } from '@/lib/server/crypto';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 export async function POST(req: NextRequest) {
   try {
@@ -118,18 +119,18 @@ export async function POST(req: NextRequest) {
     console.error('Erro em /api/ai/generate-questions:', err);
     if (err instanceof OpenAIQuestionError) {
       return NextResponse.json(
-        { error: err.message, code: err.code },
+        { error: toUserFriendlyError(err.message), code: err.code },
         { status: err.status }
       );
     }
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Erro ao gerar perguntas com a OpenAI.',
+        error: toUserFriendlyError(
+          err,
+          'Não foi possível gerar as perguntas agora. Tenta novamente dentro de instantes.'
+        ),
       },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

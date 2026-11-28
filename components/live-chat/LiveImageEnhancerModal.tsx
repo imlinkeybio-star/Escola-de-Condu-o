@@ -15,6 +15,7 @@ import { ChatAttachmentMeta, ChatEnhancementMode } from '@/lib/chat-types';
 import { fetchOriginalFileBlob, formatFileSize } from '@/lib/chat-service';
 import { enhanceImageBlobInBrowser } from '@/lib/image-enhancer';
 import { useLanguage } from '@/components/LanguageProvider';
+import { toUserFriendlyError } from '@/lib/error-messages';
 
 interface LiveImageEnhancerModalProps {
   chatId: string;
@@ -66,9 +67,7 @@ export function LiveImageEnhancerModal({
       .catch((err) => {
         if (!active) return;
         setErrorMsg(
-          err instanceof Error
-            ? err.message
-            : 'Erro ao carregar imagem original.'
+          toUserFriendlyError(err, 'Não foi possível carregar a imagem original.')
         );
       });
 
@@ -98,7 +97,7 @@ export function LiveImageEnhancerModal({
       .catch((err) => {
         if (!active) return;
         setErrorMsg(
-          err instanceof Error ? err.message : 'Erro ao melhorar imagem.'
+          toUserFriendlyError(err, 'Não foi possível melhorar a imagem.')
         );
       });
 
@@ -130,9 +129,7 @@ export function LiveImageEnhancerModal({
       setSentNotice(true);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : 'Erro ao enviar cópia melhorada.'
+        toUserFriendlyError(err, 'Não foi possível enviar a imagem melhorada.')
       );
     } finally {
       setSending(false);
