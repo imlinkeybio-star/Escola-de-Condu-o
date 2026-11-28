@@ -337,6 +337,182 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["deletedCount", "updatedAt"]
+    },
+    "ChatRoom": {
+      "title": "ChatRoom",
+      "description": "Private 1:1 or group conversation room for LIVE CHAT.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "directPairKey": { "type": "string", "maxLength": 200 },
+        "title": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 240 },
+        "photoURL": { "type": "string", "maxLength": 80000 },
+        "groupCategory": { "type": "string", "enum": ["turma", "instrutores", "administracao", "comunicados", "duvidas", "aulas"] },
+        "memberIds": { "type": "array" },
+        "adminIds": { "type": "array" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "pinnedMessageId": { "type": "string", "maxLength": 128 },
+        "pinnedPreviewText": { "type": "string", "maxLength": 160 },
+        "lastMessageId": { "type": "string", "maxLength": 128 },
+        "lastMessagePreview": { "type": "string", "maxLength": 160 },
+        "lastMessageType": { "type": "string", "enum": ["text", "image", "video", "audio", "file"] },
+        "lastMessageSenderUid": { "type": "string", "maxLength": 128 },
+        "lastMessageSenderName": { "type": "string", "maxLength": 60 },
+        "lastMessageAtMs": { "type": "integer" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "type", "memberIds", "adminIds", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ChatMemberState": {
+      "title": "ChatMemberState",
+      "description": "Per-participant chat preferences, unread cursor, and typing state.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["owner", "admin", "member"] },
+        "muted": { "type": "boolean" },
+        "pinned": { "type": "boolean" },
+        "unreadCount": { "type": "integer" },
+        "lastReadAtMs": { "type": "integer" },
+        "lastDeliveredAtMs": { "type": "integer" },
+        "typingAtMs": { "type": "integer" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "chatId", "role", "muted", "pinned", "unreadCount", "lastReadAtMs", "lastDeliveredAtMs", "typingAtMs", "joinedAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time text or lossless multimedia chat message.",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 60 },
+        "type": { "type": "string", "enum": ["text", "image", "video", "audio", "file"] },
+        "text": { "type": "string", "maxLength": 4000 },
+        "deletedForAll": { "type": "boolean" },
+        "deletedForUids": { "type": "array" },
+        "pinned": { "type": "boolean" },
+        "createdAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "chatId", "senderUid", "senderName", "type", "text", "deletedForAll", "deletedForUids", "pinned", "createdAtMs", "createdAt", "updatedAt"]
+    },
+    "ChatFileManifest": {
+      "title": "ChatFileManifest",
+      "description": "Lossless original file metadata and SHA-256 verification manifest.",
+      "type": "object",
+      "properties": {
+        "fileId": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 180 },
+        "mimeType": { "type": "string", "maxLength": 120 },
+        "extension": { "type": "string", "maxLength": 16 },
+        "sizeBytes": { "type": "integer" },
+        "chunkCount": { "type": "integer" },
+        "sha256": { "type": "string", "maxLength": 128 },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fileId", "chatId", "senderUid", "fileName", "mimeType", "extension", "sizeBytes", "chunkCount", "sha256", "completed", "createdAt"]
+    },
+    "ChatFileChunk": {
+      "title": "ChatFileChunk",
+      "description": "Lossless base64-encoded binary chunk of an original chat file.",
+      "type": "object",
+      "properties": {
+        "chunkId": { "type": "string", "maxLength": 200 },
+        "fileId": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "chunkIndex": { "type": "integer" },
+        "dataBase64": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chunkId", "fileId", "chatId", "senderUid", "chunkIndex", "dataBase64", "createdAt"]
+    },
+    "ChatPresence": {
+      "title": "ChatPresence",
+      "description": "User online/last-seen state, chat privacy settings, notifications, and blocked users.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "online": { "type": "boolean" },
+        "lastSeenAtMs": { "type": "integer" },
+        "hideOnline": { "type": "boolean" },
+        "hideLastSeen": { "type": "boolean" },
+        "blockedUids": { "type": "array" },
+        "notificationsEnabled": { "type": "boolean" },
+        "groupNotificationsEnabled": { "type": "boolean" },
+        "showPreviews": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "online", "lastSeenAtMs", "hideOnline", "hideLastSeen", "blockedUids", "notificationsEnabled", "groupNotificationsEnabled", "showPreviews", "updatedAt"]
+    },
+    "ChatFavoriteRecord": {
+      "title": "ChatFavoriteRecord",
+      "description": "User's bookmarked favorite chat messages.",
+      "type": "object",
+      "properties": {
+        "favoriteId": { "type": "string", "maxLength": 200 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "chatTitle": { "type": "string", "maxLength": 100 },
+        "messageId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 60 },
+        "type": { "type": "string", "enum": ["text", "image", "video", "audio", "file"] },
+        "previewText": { "type": "string", "maxLength": 260 },
+        "attachmentName": { "type": "string", "maxLength": 180 },
+        "createdAtMs": { "type": "integer" },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["favoriteId", "uid", "chatId", "chatTitle", "messageId", "senderName", "type", "previewText", "createdAtMs", "savedAt"]
+    },
+    "ChatNotificationRecord": {
+      "title": "ChatNotificationRecord",
+      "description": "Real-time unread notification record for LIVE CHAT recipients.",
+      "type": "object",
+      "properties": {
+        "notifId": { "type": "string", "maxLength": 128 },
+        "recipientUid": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "messageId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["message", "reply", "mention", "file", "group_join", "pinned"] },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 60 },
+        "title": { "type": "string", "maxLength": 100 },
+        "body": { "type": "string", "maxLength": 260 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["notifId", "recipientUid", "chatId", "type", "senderUid", "senderName", "title", "body", "read", "createdAt"]
+    },
+    "ChatReportRecord": {
+      "title": "ChatReportRecord",
+      "description": "Abuse/content report submitted by a chat member.",
+      "type": "object",
+      "properties": {
+        "reportId": { "type": "string", "maxLength": 128 },
+        "reporterUid": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "messageId": { "type": "string", "maxLength": 128 },
+        "reportedUid": { "type": "string", "maxLength": 128 },
+        "fileId": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "maxLength": 120 },
+        "details": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "reviewed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reportId", "reporterUid", "chatId", "messageId", "reportedUid", "reason", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -351,6 +527,10 @@
     "/users/{uid}/private/info": {
       "schema": { "$ref": "#/entities/UserPrivateInfo" },
       "description": "Strictly isolated PII and personal settings"
+    },
+    "/users/{uid}/chat_favorites/{favId}": {
+      "schema": { "$ref": "#/entities/ChatFavoriteRecord" },
+      "description": "User's favorite LIVE CHAT messages"
     },
     "/rooms/{roomId}": {
       "schema": { "$ref": "#/entities/CompetitionRoom" },
@@ -423,6 +603,38 @@
     "/platform_stats/{statId}": {
       "schema": { "$ref": "#/entities/PlatformUsersStats" },
       "description": "Aggregate platform statistics for the 5M user growth tracker"
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatRoom" },
+      "description": "LIVE CHAT private and group rooms"
+    },
+    "/chats/{chatId}/members/{uid}": {
+      "schema": { "$ref": "#/entities/ChatMemberState" },
+      "description": "Participant membership and read/typing cursors"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time LIVE CHAT messages"
+    },
+    "/chats/{chatId}/file_manifests/{fileId}": {
+      "schema": { "$ref": "#/entities/ChatFileManifest" },
+      "description": "Original quality file manifests"
+    },
+    "/chats/{chatId}/file_chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/ChatFileChunk" },
+      "description": "Lossless file byte chunks"
+    },
+    "/chat_presence/{uid}": {
+      "schema": { "$ref": "#/entities/ChatPresence" },
+      "description": "LIVE CHAT online/privacy/blocked state"
+    },
+    "/chat_notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/ChatNotificationRecord" },
+      "description": "Real-time LIVE CHAT unread notifications"
+    },
+    "/chat_reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ChatReportRecord" },
+      "description": "LIVE CHAT moderation reports"
     }
   }
 }

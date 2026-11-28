@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyFirebaseRequest } from '@/lib/server/auth';
-import { generateAngolaDrivingQuestions } from '@/lib/server/gemini';
+import {
+  generateAngolaDrivingQuestionsWithOpenAI,
+  OpenAIQuestionError,
+} from '@/lib/server/openai';
 import { sealQuestionAnswer } from '@/lib/server/crypto';
 import { normalizeLanguageCode } from '@/lib/i18n/types';
 
@@ -21,6 +24,7 @@ export async function POST(req: NextRequest) {
       category?: string;
       roomTitle?: string;
       language?: string;
+      generationRequestId?: string;
     };
 
     const roomId = typeof body.roomId === 'string' ? body.roomId.trim() : '';
@@ -32,35 +36,55 @@ export async function POST(req: NextRequest) {
     }
 
     const count =
-      typeof body.count === 'number' && body.count >= 1 && body.count <= 25
+      typeof body.count === 'number' &&
+      Number.isFinite(body.count) &&
+      body.count >= 1 &&
+      body.count <= 25
         ? Math.floor(body.count)
         : 10;
+
+    const rawDifficulty =
+      typeof body.difficulty === 'string' ? body.difficulty.trim() : '';
     const difficulty =
-      typeof body.difficulty === 'string' && body.difficulty.trim()
-        ? body.difficulty.trim().slice(0, 40)
-        : 'Intermédio';
+      rawDifficulty.length >= 2 ? rawDifficulty.slice(0, 40) : 'Intermédio';
+
+    const rawCategory =
+      typeof body.category === 'string' ? body.category.trim() : '';
     const category =
-      typeof body.category === 'string' && body.category.trim()
-        ? body.category.trim().slice(0, 60)
-        : 'Geral';
+      rawCategory.length >= 2 ? rawCategory.slice(0, 60) : 'Geral';
+
     const roomTitle =
-      typeof body.roomTitle === 'string' && body.roomTitle.trim()
+      typeof body.roomTitle === 'string' && body.roomTitle.trim().length >= 2
         ? body.roomTitle.trim().slice(0, 100)
         : 'Concurso Código de Estrada';
+
+    const generationRequestId =
+      typeof body.generationRequestId === 'string' &&
+      /^[a-zA-Z0-9_-]{4,80}$/.test(body.generationRequestId.trim())
+        ? body.generationRequestId.trim()
+        : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     const language = normalizeLanguageCode(body.language);
+    const playerSeed = `${roomId}_${user.uid}_${generationRequestId}`;
 
-    const playerSeed = `${roomId}_${user.uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    const generated = await generateAngolaDrivingQuestions({
-      count,
-      difficulty,
-      category,
-      roomTitle,
-      playerSeed,
-      language,
-    });
+    const { questions: generated, model } =
+      await generateAngolaDrivingQuestionsWithOpenAI({
+        count,
+        difficulty,
+        category,
+        roomTitle,
+        playerSeed,
+        language,
+      });
 
     const sealedQuestions = generated.map((q, questionIndex) => {
+      const safeCategory =
+        q.category.trim().length >= 2 ? q.category.trim().slice(0, 75) : category;
+      const safeQuestionText = q.questionText.trim().slice(0, 480);
+      const safeOptions = q.options
+        .slice(0, 4)
+        .map((opt) => opt.trim().slice(0, 180));
+
       const { sealedPayload, answerCommitment } = sealQuestionAnswer({
         roomId,
         uid: user.uid,
@@ -74,9 +98,9 @@ export async function POST(req: NextRequest) {
         roomId,
         uid: user.uid,
         questionIndex,
-        questionText: q.questionText,
-        options: q.options,
-        category: q.category,
+        questionText: safeQuestionText,
+        options: safeOptions,
+        category: safeCategory,
         difficulty,
         signType: q.signType,
         sealedPayload,
@@ -84,15 +108,26 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ questions: sealedQuestions });
+    return NextResponse.json({
+      questions: sealedQuestions,
+      provider: 'openai',
+      model,
+      generationRequestId,
+    });
   } catch (err) {
     console.error('Erro em /api/ai/generate-questions:', err);
+    if (err instanceof OpenAIQuestionError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.status }
+      );
+    }
     return NextResponse.json(
       {
         error:
           err instanceof Error
             ? err.message
-            : 'Erro ao gerar perguntas com a IA.',
+            : 'Erro ao gerar perguntas com a OpenAI.',
       },
       { status: 500 }
     );

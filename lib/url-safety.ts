@@ -160,3 +160,72 @@ export function sanitizeAvatarPhotoUrl(raw?: string | null): string | null {
     return null;
   }
 }
+
+export type AdBroadcastKindLite =
+  | 'informative'
+  | 'link'
+  | 'ad_audio'
+  | 'ad_banner'
+  | 'ad_video';
+
+export function getMaxAdDurationSeconds(kind: AdBroadcastKindLite): number {
+  if (kind === 'ad_banner') return 8;
+  if (kind === 'ad_video') return 20;
+  return 60;
+}
+
+export function getDefaultAdDurationSeconds(kind: AdBroadcastKindLite): number {
+  if (kind === 'ad_banner') return 8;
+  if (kind === 'ad_video') return 20;
+  return 10;
+}
+
+export function getMinAdDurationSeconds(): number {
+  return 1;
+}
+
+export function clampAdDurationSeconds(
+  kind: AdBroadcastKindLite,
+  raw?: number | null
+): number {
+  const min = getMinAdDurationSeconds();
+  const max = getMaxAdDurationSeconds(kind);
+  const fallback = getDefaultAdDurationSeconds(kind);
+  const value =
+    typeof raw === 'number' && Number.isFinite(raw) ? Math.round(raw) : fallback;
+  return Math.min(Math.max(value, min), max);
+}
+
+export function validateAdDurationSeconds(
+  kind: AdBroadcastKindLite,
+  raw: unknown
+): { valid: boolean; value: number; min: number; max: number; reason?: string } {
+  const min = getMinAdDurationSeconds();
+  const max = getMaxAdDurationSeconds(kind);
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(num) || !Number.isInteger(num)) {
+    return {
+      valid: false,
+      value: clampAdDurationSeconds(kind, null),
+      min,
+      max,
+      reason: `A duração deve ser um número inteiro entre ${min}s e ${max}s.`,
+    };
+  }
+  if (num < min || num > max) {
+    return {
+      valid: false,
+      value: num,
+      min,
+      max,
+      reason:
+        kind === 'ad_banner'
+          ? `Anúncio em banner deve ter entre ${min}s e máximo ${max}s.`
+          : kind === 'ad_video'
+            ? `Anúncio em vídeo deve ter entre ${min}s e máximo ${max}s.`
+            : `Duração deve estar entre ${min}s e ${max}s.`,
+    };
+  }
+  return { valid: true, value: num, min, max };
+}
+

@@ -37,9 +37,11 @@ import {
 import {
   APP_OWNER_EMAIL,
   APP_OWNER_USERNAME,
+  getDefaultAdDurationSeconds,
   isAppOwnerEmail,
   sanitizeAvatarPhotoUrl,
   sanitizeSafeUrl,
+  validateAdDurationSeconds,
 } from './url-safety';
 import { getActiveLanguage } from './i18n';
 
@@ -533,8 +535,29 @@ export async function startPlayerGame(room: CompetitionRoom): Promise<void> {
     throw new Error('Já concluíste esta competição.');
   }
 
-  // 1. Generate 100% live randomized AI questions uniquely for this participant
-  if (!part.questionsGenerated) {
+  // 1. Check existing per-player questions first to guarantee idempotency and never overwrite immutable docs
+  const existingQuestionsSnap = await getDocs(
+    query(
+      collection(db, 'rooms', room.roomId, 'player_questions'),
+      where('uid', '==', user.uid)
+    )
+  );
+  const existingIndices = new Set<number>();
+  existingQuestionsSnap.docs.forEach((d) => {
+    const qData = d.data() as Partial<RoomQuestion>;
+    if (
+      typeof qData.questionIndex === 'number' &&
+      qData.questionIndex >= 0 &&
+      qData.questionIndex < room.totalQuestions
+    ) {
+      existingIndices.add(qData.questionIndex);
+    }
+  });
+
+  const hasCompleteQuestionSet = existingIndices.size >= room.totalQuestions;
+
+  if (!part.questionsGenerated && !hasCompleteQuestionSet) {
+    const generationRequestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const aiRes = await fetch('/api/ai/generate-questions', {
       method: 'POST',
       headers: {
@@ -548,6 +571,7 @@ export async function startPlayerGame(room: CompetitionRoom): Promise<void> {
         category: room.category,
         roomTitle: room.title,
         language: getActiveLanguage(),
+        generationRequestId,
       }),
     });
 
@@ -556,23 +580,31 @@ export async function startPlayerGame(room: CompetitionRoom): Promise<void> {
       error?: string;
     };
     if (!aiRes.ok || !aiJson.questions || aiJson.questions.length === 0) {
-      throw new Error(aiJson.error || 'A IA não conseguiu gerar as tuas perguntas em tempo real.');
+      throw new Error(
+        aiJson.error || 'A IA não conseguiu gerar as tuas perguntas em tempo real.'
+      );
     }
 
-    try {
-      const batch = writeBatch(db);
-      for (const q of aiJson.questions) {
-        const qDocId = `${user.uid}_${q.questionIndex}`;
-        const qRef = doc(db, 'rooms', room.roomId, 'player_questions', qDocId);
-        batch.set(qRef, {
-          ...q,
-          uid: user.uid,
-          createdAt: serverTimestamp(),
-        });
+    const missingQuestions = aiJson.questions.filter(
+      (q) => !existingIndices.has(q.questionIndex)
+    );
+
+    if (missingQuestions.length > 0) {
+      try {
+        const batch = writeBatch(db);
+        for (const q of missingQuestions) {
+          const qDocId = `${user.uid}_${q.questionIndex}`;
+          const qRef = doc(db, 'rooms', room.roomId, 'player_questions', qDocId);
+          batch.set(qRef, {
+            ...q,
+            uid: user.uid,
+            createdAt: serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `rooms/${room.roomId}/player_questions`);
       }
-      await batch.commit();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `rooms/${room.roomId}/player_questions`);
     }
   }
 
@@ -1211,6 +1243,14 @@ export async function createOwnerBroadcast(params: {
     throw new Error('URL de mídia inválido. Usa https:// ou http://.');
   }
 
+  const durationCheck = validateAdDurationSeconds(
+    params.kind,
+    params.durationSeconds ?? getDefaultAdDurationSeconds(params.kind)
+  );
+  if (!durationCheck.valid) {
+    throw new Error(durationCheck.reason || 'Duração de anúncio inválida.');
+  }
+
   const id = sanitizeId(`bc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
   const payload: Record<string, unknown> = {
     id,
@@ -1220,7 +1260,7 @@ export async function createOwnerBroadcast(params: {
     aiGenerated: Boolean(params.aiGenerated),
     active: Boolean(params.active),
     showInBanner: Boolean(params.showInBanner),
-    durationSeconds: Math.min(Math.max(Math.round(params.durationSeconds ?? 10), 5), 60),
+    durationSeconds: durationCheck.value,
     cooldownMinutes: Math.min(Math.max(Math.round(params.cooldownMinutes ?? 15), 1), 120),
     createdByUid: user.uid,
     createdByEmail: (user.email || APP_OWNER_EMAIL).slice(0, 200),

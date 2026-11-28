@@ -6,7 +6,9 @@ declare global {
 
 function getMasterKey(): Buffer {
   const envSecret =
-    process.env.SERVER_SIGNING_SECRET || process.env.GEMINI_API_KEY;
+    process.env.SERVER_SIGNING_SECRET ||
+    process.env.OPENAI_API_KEY ||
+    process.env.GEMINI_API_KEY;
   if (envSecret && envSecret.trim().length > 0) {
     return crypto
       .createHmac('sha256', envSecret.trim())

@@ -18,6 +18,7 @@ import {
   LogOut,
   Megaphone,
   Menu,
+  MessageSquareText,
   Radio,
   Settings,
   Shield,
@@ -30,11 +31,13 @@ import {
 } from 'lucide-react';
 import {
   collection,
+  doc,
   limit,
   onSnapshot,
   query,
   where,
 } from 'firebase/firestore';
+import { ChatNotificationRecord, ChatPresence } from '@/lib/chat-types';
 import { db } from '@/lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useLanguage } from './LanguageProvider';
@@ -96,6 +99,80 @@ export function AppShell({
   const [otpCode, setOtpCode] = useState('');
   const [otpSubmitting, setOtpSubmitting] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [chatPresence, setChatPresence] = useState<ChatPresence | null>(null);
+  const seenChatNotifsRef = React.useRef<Set<string> | null>(null);
+  const pathnameRef = React.useRef(pathname);
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubPres = onSnapshot(
+      doc(db, 'chat_presence', user.uid),
+      (snap) => {
+        setChatPresence(snap.exists() ? (snap.data() as ChatPresence) : null);
+      },
+      () => {}
+    );
+    return () => unsubPres();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      seenChatNotifsRef.current = null;
+      return;
+    }
+    const q = query(
+      collection(db, 'chat_notifications'),
+      where('recipientUid', '==', user.uid),
+      limit(100)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => d.data() as ChatNotificationRecord);
+        const unread = list.filter((n) => !n.read);
+        setChatUnreadCount(unread.length);
+
+        if (seenChatNotifsRef.current === null) {
+          seenChatNotifsRef.current = new Set(list.map((n) => n.notifId));
+          return;
+        }
+
+        const allowAll = chatPresence?.notificationsEnabled ?? true;
+        const allowGroup = chatPresence?.groupNotificationsEnabled ?? true;
+        const showPrev = chatPresence?.showPreviews ?? true;
+
+        for (const n of unread) {
+          if (seenChatNotifsRef.current.has(n.notifId)) continue;
+          seenChatNotifsRef.current.add(n.notifId);
+
+          if (!allowAll) continue;
+          if (n.type === 'group_join' && !allowGroup) continue;
+          if (pathnameRef.current.startsWith('/chat')) continue;
+
+          if (
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted'
+          ) {
+            try {
+              new Notification(n.title || 'LIVE CHAT', {
+                body: showPrev ? n.body : 'Nova mensagem no LIVE CHAT',
+              });
+            } catch {
+              // Non-blocking
+            }
+          }
+        }
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, [user, chatPresence]);
 
   useEffect(() => {
     if (!user) return;
@@ -205,6 +282,7 @@ export function AppShell({
   const navItems = [
     { href: '/dashboard', label: dict.nav.home, icon: Home },
     { href: '/salas', label: dict.nav.salas, icon: Radio },
+    { href: '/chat', label: dict.nav.liveChat, icon: MessageSquareText },
     { href: '/ranking', label: dict.nav.ranking, icon: Trophy },
     { href: '/utilizadores', label: dict.nav.utilizadores, icon: Users },
     { href: '/estatisticas', label: dict.nav.estatisticas, icon: BarChart3 },
@@ -240,8 +318,8 @@ export function AppShell({
   const mobileTabs = [
     { href: '/dashboard', label: dict.nav.home, icon: Home },
     { href: '/salas', label: dict.nav.salasShort, icon: Radio },
+    { href: '/chat', label: dict.nav.liveChatShort, icon: MessageSquareText },
     { href: '/ranking', label: dict.nav.rankingShort, icon: Trophy },
-    { href: '/estatisticas', label: dict.nav.estatisticasShort, icon: BarChart3 },
     { href: '/perfil', label: dict.nav.perfilShort, icon: User },
   ];
 
@@ -331,7 +409,12 @@ export function AppShell({
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate flex-1">{item.label}</span>
+                {item.href === '/chat' && chatUnreadCount > 0 && (
+                  <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#22C55E] text-black text-[10px] font-black flex items-center justify-center tabular-nums">
+                    {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -711,7 +794,12 @@ export function AppShell({
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate flex-1">{item.label}</span>
+                    {item.href === '/chat' && chatUnreadCount > 0 && (
+                      <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#22C55E] text-black text-[10px] font-black flex items-center justify-center tabular-nums">
+                        {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -741,11 +829,16 @@ export function AppShell({
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`flex flex-col items-center justify-center min-h-[44px] rounded-xl transition-colors ${
+                className={`relative flex flex-col items-center justify-center min-h-[44px] rounded-xl transition-colors ${
                   active ? 'text-red-500' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Icon className="w-5 h-5" />
+                {tab.href === '/chat' && chatUnreadCount > 0 && (
+                  <span className="absolute top-1 end-3 min-w-[16px] h-4 px-1 rounded-full bg-[#22C55E] text-black text-[9px] font-black flex items-center justify-center tabular-nums">
+                    {chatUnreadCount > 9 ? '9+' : chatUnreadCount}
+                  </span>
+                )}
                 <span className="text-[10px] font-semibold mt-0.5 whitespace-nowrap">
                   {tab.label}
                 </span>

@@ -41,6 +41,9 @@ import {
 import {
   APP_OWNER_EMAIL,
   APP_OWNER_USERNAME,
+  clampAdDurationSeconds,
+  getDefaultAdDurationSeconds,
+  getMaxAdDurationSeconds,
   sanitizeSafeUrl,
 } from '@/lib/url-safety';
 import { useLanguage } from '@/components/LanguageProvider';
@@ -100,7 +103,7 @@ export default function DonoAnunciosPage() {
   const [linkLabel, setLinkLabel] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
   const [showInBanner, setShowInBanner] = useState(true);
-  const [durationSeconds, setDurationSeconds] = useState(10);
+  const [durationSeconds, setDurationSeconds] = useState(8);
   const [cooldownMinutes, setCooldownMinutes] = useState(15);
   const [aiGenerated, setAiGenerated] = useState(false);
 
@@ -195,6 +198,23 @@ export default function DonoAnunciosPage() {
     e.preventDefault();
     setError('');
     setFeedback('');
+
+    const maxAllowed = getMaxAdDurationSeconds(kind);
+    if (
+      !Number.isInteger(durationSeconds) ||
+      durationSeconds < 1 ||
+      durationSeconds > maxAllowed
+    ) {
+      setError(
+        kind === 'ad_banner'
+          ? dict.donoAnuncios.durationHintBanner
+          : kind === 'ad_video'
+            ? dict.donoAnuncios.durationHintVideo
+            : `1s – ${maxAllowed}s`
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       const created = await createOwnerBroadcast({
@@ -227,11 +247,12 @@ export default function DonoAnunciosPage() {
   };
 
   const handleTestLiveBanner = (item: BroadcastItem) => {
+    const clampedSec = clampAdDurationSeconds(item.kind, item.durationSeconds);
     window.dispatchEvent(new CustomEvent('escola:preview-ad', { detail: item }));
     setFeedback(
       tFormat(dict.donoAnuncios.previewingBanner, {
         title: item.title,
-        sec: item.durationSeconds,
+        sec: clampedSec,
       })
     );
   };
@@ -262,7 +283,7 @@ export default function DonoAnunciosPage() {
     aiGenerated,
     active: true,
     showInBanner,
-    durationSeconds,
+    durationSeconds: clampAdDurationSeconds(kind, durationSeconds),
     cooldownMinutes,
     createdByUid: user?.uid || 'owner',
     createdByEmail: user?.email || APP_OWNER_EMAIL,
@@ -374,7 +395,11 @@ export default function DonoAnunciosPage() {
               </label>
               <select
                 value={kind}
-                onChange={(e) => setKind(e.target.value as BroadcastKind)}
+                onChange={(e) => {
+                  const nextKind = e.target.value as BroadcastKind;
+                  setKind(nextKind);
+                  setDurationSeconds(getDefaultAdDurationSeconds(nextKind));
+                }}
                 className="w-full min-h-[44px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white"
               >
                 {kindOptions.map((opt) => (
@@ -508,12 +533,19 @@ export default function DonoAnunciosPage() {
                 </label>
                 <input
                   type="number"
-                  min={5}
-                  max={60}
+                  min={1}
+                  max={getMaxAdDurationSeconds(kind)}
                   value={durationSeconds}
                   onChange={(e) => setDurationSeconds(Number(e.target.value))}
                   className="w-full min-h-[42px] px-3 rounded-xl bg-[#090C14] border border-white/15 text-sm text-white font-mono-tabular"
                 />
+                {(kind === 'ad_banner' || kind === 'ad_video') && (
+                  <p className="text-[11px] text-amber-300/90">
+                    {kind === 'ad_banner'
+                      ? dict.donoAnuncios.durationHintBanner
+                      : dict.donoAnuncios.durationHintVideo}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-300">
@@ -627,7 +659,8 @@ export default function DonoAnunciosPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                            {getKindShortLabel(item.kind)} · {item.durationSeconds}s /{' '}
+                            {getKindShortLabel(item.kind)} ·{' '}
+                            {clampAdDurationSeconds(item.kind, item.durationSeconds)}s /{' '}
                             {item.cooldownMinutes}min
                             {item.aiGenerated ? ' · IA' : ''}
                           </span>
@@ -675,7 +708,7 @@ export default function DonoAnunciosPage() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                           {tFormat(dict.donoAnuncios.testSeconds, {
-                            sec: item.durationSeconds,
+                            sec: clampAdDurationSeconds(item.kind, item.durationSeconds),
                           })}
                         </button>
                         <button

@@ -5,71 +5,176 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   BadgeCheck,
-  ExternalLink,
-  Globe,
+  ChevronRight,
+  Info,
   Maximize2,
   Megaphone,
-  Pause,
+  Minimize2,
   Play,
+  SkipForward,
   Sparkles,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import { BroadcastItem } from '@/lib/types';
 import {
-  getSafeLinkHostLabel,
+  clampAdDurationSeconds,
   isInternalPath,
   parseCleanVideoSource,
   sanitizeSafeUrl,
 } from '@/lib/url-safety';
 import { useLanguage } from './LanguageProvider';
 
+const OFFICIAL_AD_ARTWORK =
+  '/assets/aistudio/file_00000000fb7882109cedcd39cb72cba5_217ff234.png';
+const OFFICIAL_BANNER_ARTWORK =
+  '/assets/aistudio/file_000000005a5481f4b37d7ec08cde09f8_4000bbfd.png';
+const BRAND_LOGO = '/assets/aistudio/favicon_14076ff5.png';
+const MAX_VIDEO_AD_SECONDS = 20;
+
+export interface ExactVideoTiming {
+  currentSec: number;
+  totalSec: number;
+  remainingSec: number;
+}
+
+function formatClock(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+interface CircularCountdownProps {
+  remainingSec: number;
+  totalSec: number;
+  size?: 'sm' | 'lg';
+}
+
+function CircularCountdown({
+  remainingSec,
+  totalSec,
+  size = 'lg',
+}: CircularCountdownProps) {
+  const safeTotal = Math.max(1, totalSec);
+  const safeRem = Math.max(0, Math.min(safeTotal, remainingSec));
+  const ratio = safeRem / safeTotal;
+  const r = size === 'lg' ? 19 : 16;
+  const box = size === 'lg' ? 46 : 40;
+  const c = box / 2;
+  const circumference = 2 * Math.PI * r;
+  const dashOffset = circumference * (1 - ratio);
+  const displayNumber = String(Math.max(0, Math.ceil(safeRem))).padStart(2, '0');
+
+  return (
+    <div
+      dir="ltr"
+      className={`relative flex items-center justify-center rounded-full bg-black/70 backdrop-blur-md shadow-lg ${
+        size === 'lg' ? 'w-[46px] h-[46px]' : 'w-[40px] h-[40px]'
+      }`}
+      aria-label={`${displayNumber}s`}
+    >
+      <svg
+        width={box}
+        height={box}
+        viewBox={`0 0 ${box} ${box}`}
+        className="-rotate-90"
+        aria-hidden="true"
+      >
+        <circle
+          cx={c}
+          cy={c}
+          r={r}
+          fill="none"
+          stroke="rgba(255,255,255,0.22)"
+          strokeWidth={size === 'lg' ? 3 : 2.5}
+        />
+        <circle
+          cx={c}
+          cy={c}
+          r={r}
+          fill="none"
+          stroke="#FACC15"
+          strokeWidth={size === 'lg' ? 3 : 2.5}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          className="transition-[stroke-dashoffset] duration-200 linear"
+        />
+      </svg>
+      <span
+        className={`absolute font-mono-tabular font-extrabold text-white leading-none ${
+          size === 'lg' ? 'text-xs' : 'text-[11px]'
+        }`}
+      >
+        {displayNumber}
+      </span>
+    </div>
+  );
+}
+
 interface CleanShieldedVideoProps {
   mediaUrl?: string | null;
   title: string;
-  playing: boolean;
   muted: boolean;
   fullscreen?: boolean;
-  onTogglePlay?: () => void;
+  maxDurationSeconds?: number;
+  loopPreview?: boolean;
+  onPlaybackActiveChange?: (active: boolean) => void;
+  onMediaError?: (failed: boolean) => void;
+  onExactTimingUpdate?: (timing: ExactVideoTiming) => void;
+  onVideoEnded?: () => void;
 }
 
 /**
- * Renders video playback cleanly without revealing host branding, YouTube/Vimeo
- * settings menus, channel headers, or external watch-page spoilers.
+ * Renders continuous, unpausable video playback cleanly without revealing host
+ * branding, YouTube/Vimeo settings menus, or progress scrubbers.
  */
 export function CleanShieldedVideo({
   mediaUrl,
   title,
-  playing,
   muted,
   fullscreen = false,
-  onTogglePlay,
+  maxDurationSeconds = MAX_VIDEO_AD_SECONDS,
+  loopPreview = false,
+  onPlaybackActiveChange,
+  onMediaError,
+  onExactTimingUpdate,
+  onVideoEnded,
 }: CleanShieldedVideoProps) {
   const { dict } = useLanguage();
   const source = parseCleanVideoSource(mediaUrl);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const endedRef = useRef(false);
   const [veilVisible, setVeilVisible] = useState(true);
+  const [mediaLoadErrorUrl, setMediaLoadErrorUrl] = useState<string | null>(null);
+  const mediaLoadError = mediaLoadErrorUrl === (mediaUrl || '');
+
+  const effectiveCap = Math.min(Math.max(maxDurationSeconds, 1), MAX_VIDEO_AD_SECONDS);
 
   useEffect(() => {
-    const id = setTimeout(() => setVeilVisible(false), 950);
+    endedRef.current = false;
+    onMediaError?.(false);
+    const id = setTimeout(() => setVeilVisible(false), 900);
     return () => clearTimeout(id);
-  }, [mediaUrl]);
+  }, [mediaUrl, onMediaError]);
 
-  // Control native <video>
+  // Keep native <video> continuously playing and synced with mute state
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid || !source || source.kind !== 'direct') return;
     vid.muted = muted;
-    if (playing) {
-      void vid.play().catch(() => {});
-    } else {
-      vid.pause();
-    }
-  }, [playing, muted, source]);
+    void vid.play().catch(() => {
+      // Fallback: ensure muted autoplay if unmuted autoplay was blocked by browser
+      if (!vid.muted) {
+        vid.muted = true;
+        void vid.play().catch(() => {});
+      }
+    });
+  }, [muted, source]);
 
-  // Control YouTube / Vimeo iframes via postMessage (no host controls needed)
+  // Control YouTube / Vimeo embeds cleanly via postMessage
   useEffect(() => {
     const frame = iframeRef.current;
     if (!frame || !frame.contentWindow || !source) return;
@@ -81,7 +186,7 @@ export function CleanShieldedVideo({
           '*'
         );
       };
-      sendYt(playing ? 'playVideo' : 'pauseVideo');
+      sendYt('playVideo');
       sendYt(muted ? 'mute' : 'unMute');
       if (!muted) sendYt('setVolume', [100]);
     } else if (source.kind === 'vimeo') {
@@ -91,36 +196,145 @@ export function CleanShieldedVideo({
           '*'
         );
       };
-      sendVimeo(playing ? 'play' : 'pause');
+      sendVimeo('play');
       sendVimeo('setVolume', muted ? 0 : 1);
     }
-  }, [playing, muted, source]);
+  }, [muted, source]);
 
-  if (!source) {
+  // Listen to YouTube infoDelivery when available to track exact video duration & stall state
+  useEffect(() => {
+    if (!source || source.kind !== 'youtube' || loopPreview) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (typeof event.data !== 'string') return;
+      try {
+        const parsed = JSON.parse(event.data) as {
+          event?: string;
+          info?: { currentTime?: number; duration?: number; playerState?: number };
+        };
+        if (parsed.event === 'infoDelivery' && parsed.info) {
+          if (typeof parsed.info.playerState === 'number') {
+            // 1 = playing, 3 = buffering
+            if (parsed.info.playerState === 1) onPlaybackActiveChange?.(true);
+            else if (parsed.info.playerState === 3) onPlaybackActiveChange?.(false);
+          }
+          const rawDur = parsed.info.duration;
+          const rawCur = parsed.info.currentTime;
+          if (typeof rawDur === 'number' && rawDur > 0 && typeof rawCur === 'number') {
+            const totalSec = Math.min(rawDur, effectiveCap);
+            const currentSec = Math.min(Math.max(rawCur, 0), totalSec);
+            const remainingSec = Math.max(0, totalSec - currentSec);
+            onExactTimingUpdate?.({ currentSec, totalSec, remainingSec });
+            if (remainingSec <= 0.05 && !endedRef.current) {
+              endedRef.current = true;
+              onVideoEnded?.();
+            }
+          }
+          if (parsed.info.playerState === 0 && !endedRef.current) {
+            endedRef.current = true;
+            onVideoEnded?.();
+          }
+        }
+      } catch {
+        // Ignore non-JSON iframe messages
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [source, effectiveCap, loopPreview, onExactTimingUpdate, onPlaybackActiveChange, onVideoEnded]);
+
+  const handleDirectLoadedMetadata = () => {
+    const vid = videoRef.current;
+    if (!vid || loopPreview) return;
+    if (Number.isFinite(vid.duration) && vid.duration > 0) {
+      const totalSec = Math.min(vid.duration, effectiveCap);
+      onExactTimingUpdate?.({
+        currentSec: 0,
+        totalSec,
+        remainingSec: totalSec,
+      });
+    }
+  };
+
+  const handleDirectTimeUpdate = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const rawDur =
+      Number.isFinite(vid.duration) && vid.duration > 0 ? vid.duration : effectiveCap;
+    const totalSec = Math.min(rawDur, effectiveCap);
+    const currentSec = Math.min(Math.max(vid.currentTime, 0), totalSec);
+    const remainingSec = Math.max(0, totalSec - currentSec);
+
+    if (!loopPreview) {
+      onExactTimingUpdate?.({ currentSec, totalSec, remainingSec });
+      if (vid.currentTime >= totalSec - 0.05 && !endedRef.current) {
+        endedRef.current = true;
+        vid.pause();
+        onVideoEnded?.();
+      }
+    } else if (vid.currentTime >= totalSec) {
+      vid.currentTime = 0;
+    }
+  };
+
+  const handleDirectEnded = () => {
+    if (loopPreview) {
+      const vid = videoRef.current;
+      if (vid) {
+        vid.currentTime = 0;
+        void vid.play().catch(() => {});
+      }
+      return;
+    }
+    if (!endedRef.current) {
+      endedRef.current = true;
+      onVideoEnded?.();
+    }
+  };
+
+  if (!source || mediaLoadError) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-[#090C14] text-slate-300 p-6 text-center gap-2">
-        <Megaphone className="w-8 h-8 text-amber-400" />
-        <p className="text-sm font-semibold">{title}</p>
+      <div className="relative w-full h-full flex flex-col items-center justify-center bg-[#090C14] text-slate-200 p-6 text-center gap-2 overflow-hidden">
+        <Image
+          src={OFFICIAL_AD_ARTWORK}
+          alt={title}
+          fill
+          sizes="100vw"
+          className="object-cover opacity-35"
+          referrerPolicy="no-referrer"
+        />
+        <div className="relative z-10 flex flex-col items-center gap-2">
+          <Megaphone className="w-8 h-8 text-[#FACC15]" />
+          <p className="text-sm font-bold text-white">{title}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className="relative w-full h-full overflow-hidden bg-black select-none"
-      onClick={onTogglePlay}
-    >
+    <div className="relative w-full h-full overflow-hidden bg-black select-none">
       {source.kind === 'direct' ? (
         <video
           ref={videoRef}
           src={source.embedUrl}
-          autoPlay={playing}
+          autoPlay
           muted={muted}
-          loop
           playsInline
+          onLoadedMetadata={handleDirectLoadedMetadata}
+          onTimeUpdate={handleDirectTimeUpdate}
+          onPlaying={() => onPlaybackActiveChange?.(true)}
+          onWaiting={() => onPlaybackActiveChange?.(false)}
+          onStalled={() => onPlaybackActiveChange?.(false)}
+          onEnded={handleDirectEnded}
+          onError={() => {
+            setMediaLoadErrorUrl(mediaUrl || '');
+            onPlaybackActiveChange?.(false);
+            onMediaError?.(true);
+          }}
           controlsList="nodownload noplaybackrate"
           disablePictureInPicture
-          className={`w-full h-full ${fullscreen ? 'object-contain' : 'object-cover'}`}
+          className={`w-full h-full pointer-events-none ${
+            fullscreen ? 'object-contain' : 'object-cover'
+          }`}
         />
       ) : (
         <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
@@ -137,11 +351,24 @@ export function CleanShieldedVideo({
               title={title}
               allow="autoplay; encrypted-media"
               referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => {
+                onPlaybackActiveChange?.(true);
+                if (source.kind === 'youtube' && iframeRef.current?.contentWindow) {
+                  iframeRef.current.contentWindow.postMessage(
+                    JSON.stringify({ event: 'listening', id: 'escola_ad_yt' }),
+                    '*'
+                  );
+                }
+              }}
+              onError={() => {
+                setMediaLoadError(true);
+                onPlaybackActiveChange?.(false);
+                onMediaError?.(true);
+              }}
               className="pointer-events-none select-none border-0 w-full h-full scale-[1.18]"
             />
-            {/* Edge matte masks hide any host top title bar or bottom logo watermark */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black via-black/80 to-transparent" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black via-black/80 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black via-black/80 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black via-black/80 to-transparent" />
           </div>
         </div>
       )}
@@ -157,18 +384,6 @@ export function CleanShieldedVideo({
           </p>
         </div>
       )}
-
-      {/* Custom Pause Shield hides host "More videos" suggestions when paused */}
-      {!playing && (
-        <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
-          <div className="w-16 h-16 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-2xl">
-            <Play className="w-7 h-7 fill-white ml-1" />
-          </div>
-          <span className="text-xs font-bold text-white tracking-wide">
-            {dict.ads.pausedClickResume}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -182,191 +397,304 @@ interface FullscreenVideoAdModalProps {
 }
 
 /**
- * Full-screen Facebook-style video ad modal with zero external host settings/spoilers.
+ * Full-screen video ad modal matching the official UI design:
+ * - No pause button, no progress bar.
+ * - Exact countdown timer & circular clock capped at max 20s.
+ * - Pauses fallback clock while buffering/stalled, closes cleanly when finished.
  */
 export function FullscreenVideoAdModal({
   ad,
-  secondsLeft,
   totalDuration,
   isPreview = false,
   onClose,
 }: FullscreenVideoAdModalProps) {
   const { dict } = useLanguage();
-  const [playing, setPlaying] = useState(true);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [muted, setMuted] = useState(true);
+  const [browserFs, setBrowserFs] = useState(false);
 
-  const safeLink = sanitizeSafeUrl(ad.linkUrl);
-  const hostLabel = getSafeLinkHostLabel(ad.linkUrl);
-  const progressPct =
-    typeof secondsLeft === 'number' && typeof totalDuration === 'number' && totalDuration > 0
-      ? Math.max(0, Math.min(100, (secondsLeft / totalDuration) * 100))
-      : null;
+  const capSeconds = clampAdDurationSeconds(
+    'ad_video',
+    totalDuration ?? ad.durationSeconds
+  );
+
+  const [timingState, setTimingState] = useState<
+    ExactVideoTiming & { adId: string }
+  >({
+    adId: ad.id,
+    currentSec: 0,
+    totalSec: capSeconds,
+    remainingSec: capSeconds,
+  });
+
+  const timing: ExactVideoTiming =
+    timingState.adId === ad.id
+      ? timingState
+      : { currentSec: 0, totalSec: capSeconds, remainingSec: capSeconds };
+
+  const hasNativeTimingRef = useRef(false);
+  const isPlaybackActiveRef = useRef(true);
+  const elapsedFallbackRef = useRef(0);
+  const closedRef = useRef(false);
+
+  const handleCloseSafe = useCallback(() => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    closedRef.current = false;
+    hasNativeTimingRef.current = false;
+    isPlaybackActiveRef.current = true;
+    elapsedFallbackRef.current = 0;
+  }, [ad.id, capSeconds]);
+
+  // Fallback timer runs only when native <video>/YouTube timing isn't driving it, and pauses on video stall/buffering
+  useEffect(() => {
+    let lastTick = Date.now();
+    const id = setInterval(() => {
+      const now = Date.now();
+      const delta = (now - lastTick) / 1000;
+      lastTick = now;
+      if (hasNativeTimingRef.current) return;
+      if (!isPlaybackActiveRef.current) return;
+
+      elapsedFallbackRef.current = Math.min(
+        elapsedFallbackRef.current + delta,
+        capSeconds
+      );
+      const remaining = Math.max(0, capSeconds - elapsedFallbackRef.current);
+      setTimingState({
+        adId: ad.id,
+        currentSec: elapsedFallbackRef.current,
+        totalSec: capSeconds,
+        remainingSec: remaining,
+      });
+      if (remaining <= 0.05) {
+        clearInterval(id);
+        handleCloseSafe();
+      }
+    }, 200);
+    return () => clearInterval(id);
+  }, [ad.id, capSeconds, handleCloseSafe]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleCloseSafe();
+    };
+    const onFsChange = () => {
+      setBrowserFs(Boolean(document.fullscreenElement));
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('fullscreenchange', onFsChange);
+    };
+  }, [handleCloseSafe]);
 
-  const handleTogglePlay = useCallback(() => {
-    setPlaying((p) => !p);
+  const handleExactTimingUpdate = useCallback(
+    (next: ExactVideoTiming) => {
+      hasNativeTimingRef.current = true;
+      setTimingState({ adId: ad.id, ...next });
+    },
+    [ad.id]
+  );
+
+  const handlePlaybackActiveChange = useCallback((active: boolean) => {
+    isPlaybackActiveRef.current = active;
   }, []);
+
+  const handleMediaError = useCallback((failed: boolean) => {
+    if (failed) {
+      // Allow static artwork banner fallback to finish cleanly within cap
+      isPlaybackActiveRef.current = true;
+    }
+  }, []);
+
+  const handleToggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (containerRef.current?.requestFullscreen) {
+        await containerRef.current.requestFullscreen();
+      }
+    } catch {
+      // Ignore fullscreen permission errors inside sandboxed iframes
+    }
+  };
+
+  const safeLink = sanitizeSafeUrl(ad.linkUrl);
 
   return (
     <div
+      ref={containerRef}
       role="dialog"
       aria-modal="true"
       aria-label={`${dict.ads.kindVideo}: ${ad.title}`}
       className="fixed inset-0 z-[100] w-screen h-[100dvh] bg-black flex flex-col overflow-hidden"
     >
-      {/* Full-viewport shielded video canvas */}
       <div className="relative flex-1 w-full h-full min-h-0 flex items-center justify-center bg-black">
         <CleanShieldedVideo
           mediaUrl={ad.mediaUrl}
           title={ad.title}
-          playing={playing}
           muted={muted}
           fullscreen
-          onTogglePlay={handleTogglePlay}
+          maxDurationSeconds={capSeconds}
+          onPlaybackActiveChange={handlePlaybackActiveChange}
+          onMediaError={handleMediaError}
+          onExactTimingUpdate={handleExactTimingUpdate}
+          onVideoEnded={handleCloseSafe}
         />
 
-        {/* Facebook-style Floating Sponsor Top Bar */}
-        <div className="absolute inset-x-0 top-0 z-20 p-3 sm:p-5 bg-gradient-to-b from-black/90 via-black/55 to-transparent flex items-center justify-between gap-3">
+        {/* Top Atmospheric Scrim */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/90 via-black/50 to-transparent z-10" />
+
+        {/* Top Bar matching reference UI: Brand Left + Skip Ad & Circular Countdown Right */}
+        <div className="absolute inset-x-0 top-0 z-20 p-3.5 sm:p-5 flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full bg-white p-1 shrink-0 ring-2 ring-[#1877F2]/60 flex items-center justify-center overflow-hidden">
+            <div className="w-11 h-11 rounded-full bg-black/75 p-1 shrink-0 ring-2 ring-[#FACC15]/70 flex items-center justify-center overflow-hidden shadow-lg">
               <Image
-                src="/assets/aistudio/favicon_14076ff5.png"
+                src={BRAND_LOGO}
                 alt={dict.common.brandName}
-                width={36}
-                height={28}
+                width={38}
+                height={38}
                 className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
               />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold text-white truncate">
+                <span className="text-sm sm:text-base font-extrabold text-white truncate drop-shadow">
                   {dict.common.brandName}
                 </span>
-                <BadgeCheck className="w-4 h-4 text-[#1877F2] shrink-0" />
+                <BadgeCheck className="w-4 h-4 text-[#1D9BF0] shrink-0" />
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-slate-300">
-                <span>{dict.ads.sponsored}</span>
-                <span aria-hidden="true">·</span>
-                <Globe className="w-3 h-3 text-slate-300 shrink-0" />
-                {isPreview ? (
+              <div className="flex items-center gap-1.5 text-xs text-slate-200/90 mt-0.5">
+                <span className="font-medium">{dict.ads.sponsored}</span>
+                <span className="w-4 h-4 rounded-full bg-white/20 text-white inline-flex items-center justify-center shrink-0">
+                  <Info className="w-2.5 h-2.5" />
+                </span>
+                {isPreview && (
                   <>
                     <span aria-hidden="true">·</span>
-                    <span className="text-amber-300 font-semibold">
+                    <span className="text-[#FACC15] font-bold">
                       {dict.ads.preview}
                     </span>
                   </>
-                ) : (
-                  typeof secondsLeft === 'number' && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono-tabular font-semibold text-amber-300">
-                        {secondsLeft}s
-                      </span>
-                    </>
-                  )
                 )}
               </div>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={dict.ads.closeAdFullscreenAria}
-            title={dict.ads.closeAdLabel}
-            className="min-w-[44px] min-h-[44px] px-3 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center gap-1.5 text-xs font-bold backdrop-blur-md cursor-pointer shrink-0"
-          >
-            <X className="w-4 h-4" />
-            <span className="hidden sm:inline">{dict.common.close}</span>
-          </button>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleCloseSafe}
+              aria-label={dict.ads.closeAdFullscreenAria}
+              className="min-h-[40px] px-4 py-1.5 rounded-full bg-black/65 hover:bg-black/85 border border-white/25 text-white inline-flex items-center gap-2 text-xs sm:text-sm font-bold backdrop-blur-md cursor-pointer shadow-lg transition-colors"
+            >
+              <span>{dict.ads.skipAd}</span>
+              <SkipForward className="w-4 h-4 fill-white rtl:rotate-180" />
+            </button>
+
+            <CircularCountdown
+              remainingSec={timing.remainingSec}
+              totalSec={timing.totalSec}
+              size="lg"
+            />
+          </div>
         </div>
 
-        {/* Facebook-style Bottom Ad Copy, Custom Media Controls & Blue CTA Bar */}
-        <div className="absolute inset-x-0 bottom-0 z-20 p-4 sm:p-6 bg-gradient-to-t from-black via-black/85 to-transparent space-y-3">
-          <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <div className="space-y-1.5 min-w-0 flex-1">
-              <p className="text-[11px] font-semibold tracking-wider text-slate-400">
-                {hostLabel}
-              </p>
-              <h2 className="text-base sm:text-xl font-bold text-white leading-snug break-words">
+        {/* Bottom Scrim & Content Overlay (NO Pause button, NO Progress bar) */}
+        <div className="absolute inset-x-0 bottom-0 z-20 pt-16 bg-gradient-to-t from-black via-black/85 to-transparent">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-4 space-y-4">
+            {/* Title, Copy & Prominent Yellow CTA */}
+            <div className="flex flex-col items-center text-center space-y-2.5">
+              <h2 className="font-display text-lg sm:text-2xl font-black text-white leading-tight break-words max-w-2xl drop-shadow">
                 {ad.title}
               </h2>
-              <p className="text-xs sm:text-sm text-slate-200 leading-relaxed max-w-3xl break-words">
+              <p className="text-xs sm:text-sm text-slate-200 leading-relaxed max-w-2xl line-clamp-2 break-words">
                 {ad.body}
               </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => setPlaying((p) => !p)}
-                className="min-h-[42px] px-4 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1.5 backdrop-blur-md cursor-pointer"
-              >
-                {playing ? (
-                  <Pause className="w-4 h-4" />
-                ) : (
-                  <Play className="w-4 h-4 fill-white" />
-                )}
-                {playing ? dict.ads.pauseBtn : dict.ads.playBtn}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMuted((m) => !m)}
-                className={`min-h-[42px] px-4 py-2 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 backdrop-blur-md cursor-pointer ${
-                  muted
-                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                    : 'bg-white/15 hover:bg-white/25 text-white'
-                }`}
-              >
-                {muted ? (
-                  <VolumeX className="w-4 h-4" />
-                ) : (
-                  <Volume2 className="w-4 h-4" />
-                )}
-                {muted ? dict.ads.unmuteBtn : dict.ads.soundOnBtn}
-              </button>
 
               {safeLink &&
                 (isInternalPath(safeLink) ? (
                   <Link
                     href={safeLink}
-                    onClick={onClose}
-                    className="min-h-[42px] px-5 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                    onClick={handleCloseSafe}
+                    className="mt-1 min-h-[48px] px-8 py-2.5 rounded-full bg-[#FACC15] hover:bg-[#FDE047] text-[#090C14] text-sm sm:text-base font-extrabold inline-flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(250,204,21,0.35)] transition-transform active:scale-[0.98] whitespace-nowrap"
                   >
                     <span>{ad.linkLabel || dict.common.learnMore}</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ChevronRight className="w-5 h-5 stroke-[2.75] rtl:rotate-180" />
                   </Link>
                 ) : (
                   <a
                     href={safeLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="min-h-[42px] px-5 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                    className="mt-1 min-h-[48px] px-8 py-2.5 rounded-full bg-[#FACC15] hover:bg-[#FDE047] text-[#090C14] text-sm sm:text-base font-extrabold inline-flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(250,204,21,0.35)] transition-transform active:scale-[0.98] whitespace-nowrap"
                   >
                     <span>{ad.linkLabel || dict.common.learnMore}</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ChevronRight className="w-5 h-5 stroke-[2.75] rtl:rotate-180" />
                   </a>
                 ))}
             </div>
+
+            {/* Bottom Controls Row: Exact Counter Left + Volume & Fullscreen Right (NO Pause, NO Progress Bar) */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div
+                aria-label={dict.ads.exactCounterLabel}
+                className="px-3 py-1.5 rounded-full bg-black/60 border border-white/15 backdrop-blur-md inline-flex items-center gap-2"
+              >
+                <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+                <span className="font-mono-tabular text-xs sm:text-sm font-bold text-white">
+                  {formatClock(timing.currentSec)} / {formatClock(timing.totalSec)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMuted((m) => !m)}
+                  aria-label={muted ? dict.ads.unmuteBtn : dict.ads.soundOnBtn}
+                  title={muted ? dict.ads.unmuteBtn : dict.ads.soundOnBtn}
+                  className={`w-10 h-10 rounded-full inline-flex items-center justify-center backdrop-blur-md cursor-pointer transition-colors ${
+                    muted
+                      ? 'bg-[#FACC15] hover:bg-[#FDE047] text-[#090C14]'
+                      : 'bg-black/60 hover:bg-black/80 border border-white/20 text-white'
+                  }`}
+                >
+                  {muted ? (
+                    <VolumeX className="w-5 h-5" />
+                  ) : (
+                    <Volume2 className="w-5 h-5" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleToggleFullscreen()}
+                  aria-label={dict.ads.toggleFullscreenAria}
+                  title={dict.ads.toggleFullscreenAria}
+                  className="w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white inline-flex items-center justify-center backdrop-blur-md cursor-pointer transition-colors"
+                >
+                  {browserFs ? (
+                    <Minimize2 className="w-5 h-5" />
+                  ) : (
+                    <Maximize2 className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
 
-          {progressPct !== null && (
-            <div className="max-w-5xl mx-auto h-1 w-full bg-white/15 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#1877F2] transition-all duration-1000 linear"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-          )}
+          {/* Signature Static Lime-Green & Yellow Bottom Edge Accent (NOT a progress bar) */}
+          <div
+            aria-hidden="true"
+            className="h-1.5 w-full bg-gradient-to-r from-[#22C55E] via-[#FACC15] to-[#22C55E]"
+          />
         </div>
       </div>
     </div>
@@ -383,7 +711,8 @@ interface FacebookStyleAdCardProps {
 }
 
 /**
- * Facebook Feed Sponsored Ad format for Banner (`ad_banner`) & Video (`ad_video`).
+ * Official UI Sponsored Ad Card for Banner (`ad_banner`, max 8s) and inline Video (`ad_video`, max 20s) previews.
+ * Matches the uploaded reference layout with no pause button and no progress bar.
  */
 export function FacebookStyleAdCard({
   ad,
@@ -397,213 +726,168 @@ export function FacebookStyleAdCard({
   const [imgError, setImgError] = useState(false);
   const safeLink = sanitizeSafeUrl(ad.linkUrl);
   const safeMedia = sanitizeSafeUrl(ad.mediaUrl);
-  const hostLabel = getSafeLinkHostLabel(ad.linkUrl);
   const isVideo = ad.kind === 'ad_video';
-  const progressPct =
-    typeof secondsLeft === 'number' && typeof totalDuration === 'number' && totalDuration > 0
-      ? Math.max(0, Math.min(100, (secondsLeft / totalDuration) * 100))
-      : null;
+
+  const maxTotal = clampAdDurationSeconds(
+    ad.kind,
+    totalDuration ?? ad.durationSeconds
+  );
+  const displayRemaining =
+    typeof secondsLeft === 'number'
+      ? Math.max(0, Math.min(secondsLeft, maxTotal))
+      : maxTotal;
 
   return (
     <article
       aria-label={`${dict.ads.sponsored}: ${ad.title}`}
-      className="bg-[#141925] border border-white/[0.1] rounded-2xl overflow-hidden shadow-xl min-w-0"
+      className={`relative rounded-2xl overflow-hidden bg-[#070B14] border border-emerald-400/25 shadow-2xl min-w-0 flex flex-col justify-between ${
+        compact ? 'min-h-[225px] sm:min-h-[250px]' : 'min-h-[320px] sm:min-h-[360px]'
+      }`}
     >
-      {/* Facebook Sponsored Header */}
-      <div className="px-4 py-3 flex items-center justify-between gap-3">
+      {/* Background Artwork / Continuous Video */}
+      <div className="absolute inset-0 z-0">
+        {isVideo && safeMedia ? (
+          <CleanShieldedVideo
+            mediaUrl={safeMedia}
+            title={ad.title}
+            muted
+            loopPreview
+            maxDurationSeconds={maxTotal}
+          />
+        ) : (
+          <Image
+            src={!isVideo && safeMedia && !imgError ? safeMedia : OFFICIAL_BANNER_ARTWORK}
+            alt={ad.title}
+            fill
+            sizes="(max-width: 768px) 100vw, 800px"
+            className="object-cover object-center"
+            referrerPolicy="no-referrer"
+            onError={() => setImgError(true)}
+          />
+        )}
+
+        {/* Scrims for crisp readability */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/85 via-black/45 to-black/95" />
+      </div>
+
+      {/* Top Overlay: Brand + Verified Badge Left | Skip Ad + Circular Counter Right */}
+      <div className="relative z-10 p-3.5 sm:p-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-white p-1 shrink-0 ring-1 ring-white/20 flex items-center justify-center overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-black/75 p-1 shrink-0 ring-2 ring-[#FACC15]/60 flex items-center justify-center overflow-hidden shadow">
             <Image
-              src="/assets/aistudio/favicon_14076ff5.png"
+              src={BRAND_LOGO}
               alt={dict.common.brandName}
               width={36}
-              height={28}
+              height={36}
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold text-white truncate">
+              <span className="text-xs sm:text-sm font-extrabold text-white truncate drop-shadow">
                 {dict.common.brandName}
               </span>
-              <BadgeCheck className="w-4 h-4 text-[#1877F2] shrink-0" />
+              <BadgeCheck className="w-4 h-4 text-[#1D9BF0] shrink-0" />
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-200">
               <span>{dict.ads.sponsored}</span>
-              <span aria-hidden="true">·</span>
-              <Globe className="w-3 h-3 shrink-0" />
+              <span className="w-3.5 h-3.5 rounded-full bg-white/20 text-white inline-flex items-center justify-center shrink-0">
+                <Info className="w-2.5 h-2.5" />
+              </span>
               {ad.aiGenerated && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1 text-amber-300">
+                  <span className="inline-flex items-center gap-1 text-[#FACC15] font-semibold">
                     <Sparkles className="w-3 h-3" />
                     IA
                   </span>
                 </>
               )}
-              {typeof secondsLeft === 'number' && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-mono-tabular text-amber-300 font-semibold">
-                    {secondsLeft}s
-                  </span>
-                </>
-              )}
             </div>
           </div>
         </div>
 
-        {onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label={dict.ads.closeAdLabel}
-            title={dict.ads.closeAdLabel}
-            className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Facebook Primary Ad Copy */}
-      <div className="px-4 pb-3">
-        <p
-          className={`text-sm text-slate-200 leading-relaxed break-words ${
-            compact ? 'line-clamp-2' : ''
-          }`}
-        >
-          {ad.body}
-        </p>
-      </div>
-
-      {/* Facebook Edge-to-Edge Creative Media */}
-      {isVideo ? (
-        <div
-          className={`relative w-full bg-black overflow-hidden group cursor-pointer ${
-            compact ? 'aspect-[21/9] max-h-56' : 'aspect-video max-h-96'
-          }`}
-          onClick={() => onOpenFullscreen?.(ad)}
-        >
-          {safeMedia ? (
-            <CleanShieldedVideo
-              mediaUrl={safeMedia}
-              title={ad.title}
-              playing
-              muted
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#0F172A] via-[#172554] to-[#090C14] flex items-center justify-center p-6">
-              <p className="text-base font-bold text-white text-center">
-                {ad.title}
-              </p>
-            </div>
-          )}
-
-          {/* Clean Facebook Watch Play / Fullscreen Preview Trigger */}
-          <div className="absolute inset-0 bg-black/25 group-hover:bg-black/40 transition-colors flex items-center justify-center z-20">
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {onDismiss && (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenFullscreen?.(ad);
-              }}
-              className="min-h-[44px] px-4 py-2.5 rounded-full bg-[#1877F2]/95 hover:bg-[#166FE5] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 shadow-2xl cursor-pointer"
+              onClick={onDismiss}
+              aria-label={dict.ads.closeAdLabel}
+              className="min-h-[34px] px-3 py-1 rounded-full bg-black/65 hover:bg-black/85 border border-white/25 text-white inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-bold backdrop-blur-md cursor-pointer shadow"
             >
-              <Maximize2 className="w-4 h-4" />
-              {dict.ads.previewFullscreenBtn}
+              <span>{dict.ads.skipAd}</span>
+              <SkipForward className="w-3.5 h-3.5 fill-white rtl:rotate-180" />
             </button>
-          </div>
-        </div>
-      ) : safeMedia && !imgError ? (
-        <div
-          className={`relative w-full bg-[#090C14] overflow-hidden ${
-            compact ? 'h-36 sm:h-44' : 'aspect-[16/9] max-h-80'
-          }`}
-        >
-          <Image
-            src={safeMedia}
-            alt={ad.title}
-            fill
-            sizes="(max-width: 768px) 100vw, 800px"
-            className="object-cover"
-            referrerPolicy="no-referrer"
-            onError={() => setImgError(true)}
+          )}
+
+          <CircularCountdown
+            remainingSec={displayRemaining}
+            totalSec={maxTotal}
+            size="sm"
           />
         </div>
-      ) : (
-        <div
-          className={`relative w-full bg-gradient-to-br from-[#132247] via-[#1B2A4A] to-[#0E1320] px-5 ${
-            compact ? 'py-4' : 'py-8'
-          } flex items-center justify-between gap-4 border-y border-white/[0.06]`}
-        >
-          <div className="min-w-0 space-y-1">
-            <p className="text-[11px] font-semibold tracking-wider text-sky-300 uppercase">
-              {dict.ads.officialCampaign}
-            </p>
-            <p className="font-display text-lg sm:text-2xl font-extrabold text-white leading-snug break-words">
-              {ad.title}
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
-            <Megaphone className="w-6 h-6 text-[#1877F2]" />
-          </div>
-        </div>
-      )}
+      </div>
 
-      {/* Facebook Link & Headline Action Footer */}
-      <div className="px-4 py-3 bg-[#1B2233] border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium text-slate-400 truncate">
-            {hostLabel}
+      {/* Center / Lower Overlay: Headline, Copy & Yellow CTA */}
+      <div className="relative z-10 px-4 sm:px-6 pb-4 pt-3 flex flex-col items-center text-center gap-2.5">
+        <div className="max-w-xl space-y-1">
+          <h3
+            className={`font-display font-black text-white leading-snug break-words drop-shadow ${
+              compact ? 'text-base sm:text-lg' : 'text-lg sm:text-2xl'
+            }`}
+          >
+            {ad.title}
+          </h3>
+          <p
+            className={`text-xs sm:text-sm text-slate-200 leading-relaxed break-words ${
+              compact ? 'line-clamp-2' : 'line-clamp-3'
+            }`}
+          >
+            {ad.body}
           </p>
-          <p className="text-sm font-bold text-white truncate">{ad.title}</p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {isVideo && onOpenFullscreen && (
-            <button
-              type="button"
-              onClick={() => onOpenFullscreen(ad)}
-              className="min-h-[40px] px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-              {dict.ads.fullscreenBtn}
-            </button>
-          )}
-
+        <div className="flex flex-wrap items-center justify-center gap-2.5 pt-0.5">
           {safeLink &&
             (isInternalPath(safeLink) ? (
               <Link
                 href={safeLink}
-                className="min-h-[40px] px-4 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="min-h-[42px] px-6 py-2 rounded-full bg-[#FACC15] hover:bg-[#FDE047] text-[#090C14] text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5 shadow-[0_8px_22px_rgba(250,204,21,0.3)] whitespace-nowrap"
               >
                 <span>{ad.linkLabel || dict.common.learnMore}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ChevronRight className="w-4 h-4 stroke-[2.75] rtl:rotate-180" />
               </Link>
             ) : (
               <a
                 href={safeLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[40px] px-4 py-2 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="min-h-[42px] px-6 py-2 rounded-full bg-[#FACC15] hover:bg-[#FDE047] text-[#090C14] text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5 shadow-[0_8px_22px_rgba(250,204,21,0.3)] whitespace-nowrap"
               >
                 <span>{ad.linkLabel || dict.common.learnMore}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ChevronRight className="w-4 h-4 stroke-[2.75] rtl:rotate-180" />
               </a>
             ))}
+
+          {isVideo && onOpenFullscreen && (
+            <button
+              type="button"
+              onClick={() => onOpenFullscreen(ad)}
+              className="min-h-[42px] px-4 py-2 rounded-full bg-black/70 hover:bg-black/90 border border-white/25 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 backdrop-blur-md cursor-pointer whitespace-nowrap"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>{dict.ads.previewFullscreenBtn}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {progressPct !== null && (
-        <div className="h-0.5 w-full bg-white/10">
-          <div
-            className="h-full bg-[#1877F2] transition-all duration-1000 linear"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-      )}
+      {/* Signature Static Lime-Green & Yellow Bottom Edge Accent (NOT a progress bar) */}
+      <div
+        aria-hidden="true"
+        className="relative z-10 h-1.5 w-full bg-gradient-to-r from-[#22C55E] via-[#FACC15] to-[#22C55E]"
+      />
     </article>
   );
 }

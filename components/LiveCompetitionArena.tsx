@@ -120,10 +120,14 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   }>({ qIndex: -1, left: 8 });
   const [submitting, setSubmitting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<
+    'idle' | 'generating' | 'completed' | 'failed'
+  >('idle');
   const [advancing, setAdvancing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
+  const startingLockRef = useRef(false);
   const revealTriggeredForRef = useRef<number>(-1);
   const advanceTriggeredForRef = useRef<number>(-1);
   const spokenQuestionRef = useRef<string>('');
@@ -484,20 +488,25 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
   }, [room, user, myStatus, isRoomClosed, myParticipant, speak, dict.arena.speechFinish]);
 
   const handleStartMyGame = async () => {
-    if (!room || starting || isRoomClosed) return;
+    if (!room || starting || startingLockRef.current || isRoomClosed) return;
+    startingLockRef.current = true;
     setStarting(true);
+    setGenerationStatus('generating');
     setErrorMsg(null);
     revealTriggeredForRef.current = -1;
     advanceTriggeredForRef.current = -1;
     try {
       await startPlayerGame(room);
+      setGenerationStatus('completed');
     } catch (err) {
+      setGenerationStatus('failed');
       setErrorMsg(
         err instanceof Error
           ? err.message
           : dict.arena.startError
       );
     } finally {
+      startingLockRef.current = false;
       setStarting(false);
     }
   };
@@ -999,6 +1008,11 @@ export function LiveCompetitionArena({ roomId }: { roomId: string }) {
                   <Play className="w-4 h-4 fill-current" />
                   {starting ? dict.arena.generatingAiBtn : dict.arena.startMyGameBtn}
                 </button>
+                {generationStatus === 'failed' && errorMsg && (
+                  <p className="text-xs text-red-300 font-medium break-words">
+                    {errorMsg}
+                  </p>
+                )}
               </div>
             </div>
           )}

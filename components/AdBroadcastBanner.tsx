@@ -13,7 +13,11 @@ import {
 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { BroadcastItem } from '@/lib/types';
-import { isInternalPath, sanitizeSafeUrl } from '@/lib/url-safety';
+import {
+  clampAdDurationSeconds,
+  isInternalPath,
+  sanitizeSafeUrl,
+} from '@/lib/url-safety';
 import {
   FacebookStyleAdCard,
   FullscreenVideoAdModal,
@@ -54,8 +58,9 @@ export function AdBroadcastBanner({
     [broadcasts]
   );
   const [activeAd, setActiveAd] = useState<BroadcastItem | null>(null);
+  const [activeExpiresAtMs, setActiveExpiresAtMs] = useState<number>(0);
   const [previewVideoAd, setPreviewVideoAd] = useState<BroadcastItem | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState(10);
+  const [secondsLeft, setSecondsLeft] = useState(8);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
@@ -82,6 +87,7 @@ export function AdBroadcastBanner({
       // Ignore storage errors
     }
     setActiveAd(null);
+    setActiveExpiresAtMs(0);
   }, [stopAllMedia]);
 
   // Listen for owner instant preview events (timed banner/fullscreen OR manual fullscreen preview)
@@ -90,19 +96,24 @@ export function AdBroadcastBanner({
       const custom = ev as CustomEvent<BroadcastItem>;
       if (!custom.detail) return;
       stopAllMedia();
-      const dur = Math.min(Math.max(custom.detail.durationSeconds || 10, 5), 60);
+      const dur = clampAdDurationSeconds(
+        custom.detail.kind,
+        custom.detail.durationSeconds
+      );
+      const expiresAtMs = Date.now() + dur * 1000;
       try {
         localStorage.setItem(
           LS_ACTIVE_AD,
           JSON.stringify({
             id: custom.detail.id,
-            expiresAtMs: Date.now() + dur * 1000,
+            expiresAtMs,
           })
         );
       } catch {
         // Ignore
       }
       setActiveAd(custom.detail);
+      setActiveExpiresAtMs(expiresAtMs);
       setSecondsLeft(dur);
     };
 
@@ -124,7 +135,7 @@ export function AdBroadcastBanner({
     };
   }, [stopAllMedia]);
 
-  // Schedule ad selection respecting duration & 15-minute cooldown
+  // Schedule ad selection respecting duration & cooldown
   useEffect(() => {
     if (bannerPool.length === 0) return;
 
@@ -137,8 +148,18 @@ export function AdBroadcastBanner({
           if (remaining > 0) {
             const match = bannerPool.find((b) => b.id === parsed.id);
             if (match) {
+              const clampedMax = clampAdDurationSeconds(
+                match.kind,
+                match.durationSeconds
+              );
+              const cappedRemaining = Math.min(remaining, clampedMax);
+              const cappedExpiresAtMs = Math.min(
+                parsed.expiresAtMs,
+                Date.now() + cappedRemaining * 1000
+              );
               setActiveAd(match);
-              setSecondsLeft(remaining);
+              setActiveExpiresAtMs(cappedExpiresAtMs);
+              setSecondsLeft(cappedRemaining);
               return;
             }
           } else {
@@ -153,7 +174,7 @@ export function AdBroadcastBanner({
         const cooldownMs = Math.max(nextAd.cooldownMinutes || 15, 1) * 60 * 1000;
 
         if (lastShownMs === 0 || Date.now() - lastShownMs >= cooldownMs) {
-          const dur = Math.min(Math.max(nextAd.durationSeconds || 10, 5), 60);
+          const dur = clampAdDurationSeconds(nextAd.kind, nextAd.durationSeconds);
           const expiresAtMs = Date.now() + dur * 1000;
           localStorage.setItem(
             LS_ACTIVE_AD,
@@ -161,6 +182,7 @@ export function AdBroadcastBanner({
           );
           localStorage.setItem(LS_CURSOR, String((cursor + 1) % bannerPool.length));
           setActiveAd(nextAd);
+          setActiveExpiresAtMs(expiresAtMs);
           setSecondsLeft(dur);
         }
       } catch {
@@ -176,21 +198,32 @@ export function AdBroadcastBanner({
     };
   }, [bannerPool]);
 
-  // 1-second countdown ticker while a scheduled ad is visible
+  // Synchronized wall-clock countdown ticker while a scheduled non-video ad is visible
   useEffect(() => {
-    if (!activeAd) return;
+    if (!activeAd || !activeExpiresAtMs) return;
+    // Fullscreen video ad manages its own playback-synced timer (pauses on stall, ends on completion or <=20s)
+    if (activeAd.kind === 'ad_video') return;
+
+    const maxAllowed = clampAdDurationSeconds(activeAd.kind, activeAd.durationSeconds);
+    const updateRemaining = () => {
+      const remaining = Math.ceil((activeExpiresAtMs - Date.now()) / 1000);
+      if (remaining <= 0) {
+        dismissAd();
+        return true;
+      }
+      setSecondsLeft(Math.min(remaining, maxAllowed));
+      return false;
+    };
+
+    if (updateRemaining()) return;
+
     const id = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(id);
-          dismissAd();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      if (updateRemaining()) {
+        clearInterval(id);
+      }
+    }, 250);
     return () => clearInterval(id);
-  }, [activeAd, dismissAd]);
+  }, [activeAd, activeExpiresAtMs, dismissAd]);
 
   useEffect(() => {
     return () => stopAllMedia();
@@ -253,7 +286,7 @@ export function AdBroadcastBanner({
 
   if (!activeAd) return null;
 
-  const totalDur = Math.min(Math.max(activeAd.durationSeconds || 10, 5), 60);
+  const totalDur = clampAdDurationSeconds(activeAd.kind, activeAd.durationSeconds);
 
   // Video ads open directly in full screen with zero host settings or spoilers
   if (activeAd.kind === 'ad_video') {

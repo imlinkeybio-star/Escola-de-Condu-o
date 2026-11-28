@@ -1,0 +1,556 @@
+PROMPT MASTER — CORREÇÃO, IMPLEMENTAÇÃO E INTEGRAÇÃO DA ESCOLA DE
+CONDUÇÃO LIVE
+
+OBJETIVO GERAL
+
+Analisa a plataforma Escola de Condução Live existente e executa as
+correções e implementações descritas neste documento. Trabalha sobre o
+código, a arquitetura, a autenticação, a base de dados e os componentes
+já existentes.
+
+Isto não é um pedido para criar uma demonstração, uma página isolada ou
+uma interface com botões sem funcionalidade. Implementa funcionalidades
+reais, integradas e testáveis.
+
+REGRAS GERAIS OBRIGATÓRIAS
+
+1.  Antes de alterar qualquer ficheiro, analisa a estrutura do projeto,
+    identifica as tecnologias utilizadas, os componentes existentes, os
+    serviços, as rotas, a autenticação, as regras de segurança e o
+    modelo de dados.
+2.  Reutiliza a arquitetura e os componentes existentes sempre que forem
+    adequados.
+3.  Não substituas nem removas funcionalidades que não estejam
+    diretamente relacionadas com este trabalho.
+4.  Não apagues dados existentes nem alteres estruturas de dados sem
+    necessidade e sem migração compatível.
+5.  Não inventes resultados de testes. Executa os testes possíveis e
+    apresenta claramente o que foi ou não validado.
+6.  Não deixes botões, menus, indicadores ou ações meramente
+    decorativos. Cada elemento interativo deve executar a ação indicada.
+7.  Mantém a compatibilidade com Android, iOS, tablets e computadores.
+8.  Trata erros de forma explícita, com mensagens úteis e registos
+    técnicos que não exponham segredos.
+9.  Não coloques chaves API, tokens ou credenciais diretamente no código
+    do frontend, no repositório ou em ficheiros públicos.
+10. No final, apresenta os ficheiros alterados, as configurações
+    necessárias, as regras de segurança aplicadas e os resultados reais
+    dos testes.
+
+PARTE 1 — CORREÇÃO DO SISTEMA DE ANÚNCIOS
+
+REFERÊNCIA VISUAL
+
+Utiliza como referência a imagem/UI já existente na plataforma para os
+anúncios de vídeo e de banner. Mantém o mesmo estilo visual, identidade,
+disposição, proporções, cores, tipografia, espaçamentos, cantos, cartões
+e comportamento responsivo apresentados nessa UI. Não cries um estilo
+visual diferente nem redesenhes a área sem necessidade.
+
+Se a imagem de referência não estiver disponível no projeto ou no
+contexto de trabalho, localiza primeiro os componentes e estilos atuais
+dos anúncios. Não inventes uma referência visual.
+
+1.1 — ANÚNCIO DE VÍDEO
+
+Implementa o anúncio de vídeo seguindo o estilo visual da UI de
+referência, com estas regras obrigatórias:
+
+-   Duração máxima de cada anúncio: 20 segundos.
+-   Não apresentar botão de pausa.
+-   Não apresentar barra de progresso.
+-   Não apresentar controlos de reprodução que permitam ao utilizador
+    pausar ou avançar o anúncio.
+-   Apresentar um contador/temporizador visível que indique o tempo do
+    anúncio com precisão, em segundos, e que seja atualizado
+    continuamente.
+-   O contador deve refletir a duração real do anúncio em reprodução,
+    não um valor fictício ou uma contagem independente do vídeo.
+-   O anúncio deve terminar automaticamente quando a reprodução terminar
+    ou quando atingir o limite máximo de 20 segundos, consoante o que
+    ocorrer primeiro.
+-   Ao terminar, executar o comportamento já definido pela plataforma
+    para fechar o anúncio ou apresentar o conteúdo seguinte.
+-   Tratar corretamente carregamento, falha de reprodução, ficheiro
+    inválido e interrupção da ligação.
+-   Não permitir que o temporizador continue a contar quando o vídeo não
+    está efetivamente a decorrer.
+-   Evitar que o mesmo anúncio seja contabilizado várias vezes devido a
+    re-renderizações ou eventos duplicados.
+-   Respeitar as regras de som, autoplay e interação impostas pelo
+    navegador e pelo sistema operativo. Se o autoplay com som for
+    bloqueado, aplicar o comportamento compatível já adotado pela
+    plataforma.
+
+O contador deve ser apresentado de forma clara, discreta e coerente com
+a UI existente. Não substituir o contador por uma barra de progresso.
+
+1.2 — ANÚNCIO DE BANNER
+
+Implementa o anúncio de banner no mesmo estilo da UI de referência.
+
+-   Duração máxima de apresentação: 8 segundos.
+-   Apresentar um contador visível de 8 até 0 segundos, sincronizado com
+    o tempo real de apresentação.
+-   Ao chegar a zero, terminar automaticamente a apresentação do banner
+    e executar o fluxo de fecho ou avanço já existente.
+-   Não prolongar a apresentação para além dos 8 segundos.
+-   Evitar contagens duplicadas, temporizadores concorrentes ou
+    reinícios indevidos causados por re-renderizações.
+-   Respeitar o comportamento responsivo e não bloquear a navegação da
+    plataforma.
+-   Se o banner for fechado antes do fim por uma ação permitida ao
+    utilizador, cancelar o temporizador e limpar os recursos associados.
+
+1.3 — GESTÃO E VALIDAÇÃO DOS ANÚNCIOS
+
+-   Validar o tipo e a duração dos conteúdos antes de os publicar.
+-   Rejeitar vídeos com duração superior a 20 segundos e banners
+    configurados para mais de 8 segundos, ou aplicar o mecanismo de
+    corte já suportado pelo sistema sem alterar indevidamente o ficheiro
+    original.
+-   Guardar e apresentar o estado real do anúncio.
+-   Garantir que os contadores são acessíveis e legíveis em ecrãs
+    pequenos.
+-   Não alterar áreas da plataforma que não estejam relacionadas com
+    anúncios.
+
+PARTE 2 — CORREÇÃO DA GERAÇÃO DE PERGUNTAS DA COMPETIÇÃO AO VIVO
+
+CONTEXTO DOS ERROS OBSERVADOS
+
+A plataforma apresentou os seguintes problemas:
+
+A)  Erro de permissões do Firestore:
+
+-   Código/mensagem: “Missing or insufficient permissions.”
+-   Operação: write.
+-   Caminho observado: rooms/sala_1795710099830_2fz1g/player_questions.
+-   A autenticação apresentada indicava um utilizador autenticado com
+    Google e email verificado.
+
+B)  Erros do serviço Gemini:
+
+-   Erro de quota excedida.
+-   Mensagem de indisponibilidade HTTP 503 / UNAVAILABLE, indicando
+    elevada procura.
+-   A geração de perguntas deixou de funcionar quando a quota Gemini foi
+    atingida ou o serviço ficou indisponível.
+
+OBJETIVO
+
+Corrige a geração de perguntas da Sala de Competição ao Vivo — incluindo
+o fluxo Avançado — e migra a geração de perguntas do Gemini para a API
+da OpenAI, utilizando uma variável de ambiente chamada OPENAI_API_KEY.
+
+2.1 — MIGRAÇÃO GEMINI PARA OPENAI
+
+-   Localiza todas as referências à integração Gemini utilizadas na
+    geração de perguntas.
+-   Substitui a chamada Gemini por uma integração funcional com a API da
+    OpenAI.
+-   Utiliza OPENAI_API_KEY como nome da variável de ambiente.
+-   Não escrevas a chave real diretamente no código.
+-   Faz as chamadas à OpenAI exclusivamente no backend ou numa função
+    server-side protegida.
+-   Nunca exponhas OPENAI_API_KEY no navegador, bundle frontend, logs
+    públicos ou respostas da API.
+-   Utiliza um modelo OpenAI atualmente disponível e configurado por
+    variável de ambiente, por exemplo OPENAI_MODEL, para permitir a
+    alteração do modelo sem modificar a lógica principal.
+-   Não inventes nomes de modelos nem assumes que um modelo está
+    disponível: valida o modelo configurado e documenta o valor
+    necessário.
+-   Mantém a estrutura de resposta que o frontend já espera, ou atualiza
+    frontend e backend em conjunto de forma compatível.
+-   Remove dependências Gemini apenas quando já não forem utilizadas por
+    outras funcionalidades. Não elimines integrações Gemini não
+    relacionadas com esta tarefa.
+
+2.2 — GERAÇÃO DE PERGUNTAS
+
+-   Preserva o formato, idioma, dificuldade, categorias e regras atuais
+    da competição.
+-   Gera perguntas válidas, claras e adequadas ao contexto do Código de
+    Estrada.
+-   Valida a estrutura de cada pergunta antes de a guardar.
+-   Valida que cada pergunta contém todos os campos obrigatórios
+    exigidos pela aplicação, incluindo opções e resposta correta, quando
+    aplicável.
+-   Impede perguntas vazias, duplicadas ou com respostas incompatíveis
+    com o formato esperado.
+-   Trata respostas incompletas ou inválidas do modelo sem interromper
+    toda a competição.
+-   Não apresenta conteúdo gerado como válido antes de passar pela
+    validação.
+-   Implementa tratamento de timeout, erros HTTP, limites de utilização
+    e tentativas controladas.
+-   Não cria ciclos infinitos de repetição em caso de quota,
+    autenticação inválida ou indisponibilidade.
+-   Quando a geração falhar, apresenta uma mensagem clara e regista
+    detalhes técnicos seguros no backend.
+-   Evita duplicar perguntas quando uma tentativa é repetida.
+
+2.3 — CORREÇÃO DAS PERMISSÕES FIRESTORE
+
+Investiga a causa concreta do erro no caminho
+rooms/{roomId}/player_questions.
+
+-   Inspeciona as Firestore Security Rules atuais e o código que escreve
+    nessa coleção.
+-   Confirma se o utilizador autenticado tem autorização para executar a
+    operação pretendida.
+-   Verifica a associação do utilizador à sala, o papel/perfil, o estado
+    da sala e as condições de escrita.
+-   Garante que apenas participantes autorizados ou serviços
+    administrativos podem criar ou alterar os documentos permitidos.
+-   Se a escrita tiver de ser feita pelo servidor, move-a para um
+    backend seguro com Firebase Admin SDK, validando sempre a identidade
+    e as permissões do utilizador.
+-   Não resolvas o problema abrindo a base de dados a todos os
+    utilizadores.
+-   Não uses regras permissivas como allow read, write: if true.
+-   Não confies em userId, roomId, role ou permissões enviados pelo
+    cliente sem validação no servidor.
+-   Mantém o isolamento entre salas e utilizadores.
+-   Testa operações autorizadas e não autorizadas.
+
+2.4 — RESILIÊNCIA
+
+-   A falha temporária da OpenAI não deve corromper a sala nem deixar
+    perguntas parcialmente gravadas.
+-   Garante que cada pedido de geração possui um identificador
+    idempotente ou mecanismo equivalente contra duplicações.
+-   Persiste os resultados apenas depois da validação completa.
+-   Mantém estados claros: a gerar, concluído e falhou.
+-   Permite nova tentativa segura quando apropriado.
+-   Não substituas silenciosamente perguntas válidas já existentes.
+
+PARTE 3 — LIVE CHAT Sistema avançado de conversas, comunicação e
+partilha de ficheiros da Escola de Condução Live.
+
+NOME OFICIAL
+
+LIVE CHAT Comunica. Partilha. Aprende. Evolui.
+
+OBJETIVO
+
+Desenvolve e integra na plataforma um sistema de comunicação completo,
+moderno, profissional e funcional. A experiência deve combinar a
+simplicidade de utilização de aplicações de mensagens, a capacidade de
+partilha de ficheiros e a organização de conversas e grupos.
+
+Não criar uma demonstração, interface fictícia ou sistema separado. O
+LIVE CHAT deve utilizar as contas, autenticação, perfis e permissões já
+existentes na Escola de Condução Live.
+
+3.1 — IDENTIDADE VISUAL
+
+-   Preto como cor principal.
+-   Verde vivo como cor de destaque.
+-   Amarelo para ações e destaques.
+-   Branco para textos.
+-   Fundos escuros elegantes.
+-   Transparências subtis.
+-   Cantos arredondados.
+-   Ícones minimalistas e profissionais.
+-   Animações suaves e rápidas.
+
+Criar uma interface premium, intuitiva e responsiva, adaptada a Android,
+iPhone, tablets e computadores. O LIVE CHAT deve transmitir a
+experiência de uma aplicação de mensagens independente, mantendo a
+identidade da Escola de Condução Live.
+
+3.2 — CONVERSAS PRIVADAS
+
+Permitir: - Iniciar conversas com outros utilizadores autorizados. -
+Enviar e receber mensagens em tempo real. - Responder a mensagens
+específicas. - Editar mensagens enviadas, identificando-as como
+editadas. - Eliminar mensagens apenas para mim ou para todos, quando
+permitido. - Encaminhar mensagens e ficheiros. - Copiar mensagens. -
+Reagir às mensagens. - Fixar mensagens importantes. - Guardar mensagens
+favoritas. - Pesquisar mensagens antigas. - Consultar o histórico
+completo da conversa.
+
+Lista de conversas: - Fotografia de perfil. - Nome do utilizador. -
+Pré-visualização da última mensagem. - Hora da última atividade. -
+Indicador de mensagens não lidas. - Estado online/offline, quando
+disponível. - Pré-visualização de imagens, vídeos e documentos. -
+Conversas fixadas no topo. - Notificações de novas mensagens.
+
+Ordenar as conversas por atividade recente.
+
+3.3 — TEMPO REAL E ESTADOS
+
+Implementar: - Envio e receção em tempo real, sem atualizar a página. -
+Indicador de escrita. - Estado online/offline. - Última vez online,
+respeitando as definições de privacidade. - Confirmação de envio. -
+Confirmação de entrega. - Confirmação de leitura. - Horário exato das
+mensagens. - Sincronização do histórico entre dispositivos.
+
+Estados visuais: - A enviar. - Enviada. - Entregue. - Lida. - Falha no
+envio.
+
+Em caso de perda de ligação, manter mensagens pendentes identificadas e
+reenviá-las quando a ligação regressar, sem duplicações.
+
+3.4 — PARTILHA DE FICHEIROS EM QUALIDADE ORIGINAL
+
+Permitir enviar: - Fotografias e imagens PNG, JPG, JPEG e WebP. -
+Vídeos. - Áudios. - PDF. - Word. - Excel. - PowerPoint. - ZIP e RAR. -
+Ficheiros de texto. - Outros formatos comuns, desde que suportados e
+seguros.
+
+Preservação do original: - Não comprimir automaticamente o ficheiro
+original. - Não reduzir automaticamente a resolução das imagens. - Não
+converter vídeos para formatos de qualidade inferior. - Não modificar
+documentos durante o envio. - Preservar nome, extensão, formato,
+dimensões, conteúdo e integridade. - Permitir ao destinatário
+descarregar exatamente o ficheiro original.
+
+Disponibilizar dois modos: A) Envio rápido: experiência simples e
+pré-visualização quando suportada. Qualquer miniatura ou
+pré-visualização deve ser uma derivação separada; nunca substituir o
+original. B) Enviar como ficheiro original: envio sem compressão,
+conversão ou alteração do conteúdo.
+
+Apresentar: - Nome. - Tamanho em MB ou GB. - Formato. - Data de envio. -
+Progresso do carregamento. - Estado do envio.
+
+Implementar carregamento progressivo, cancelamento e recuperação de
+envios interrompidos, conforme as capacidades do serviço de
+armazenamento utilizado. Não impor limites artificiais baixos. Respeitar
+e informar os limites reais do fornecedor, do backend e do navegador.
+
+3.5 — VISUALIZADOR E GALERIA
+
+Criar visualizador de imagens com: - Ecrã inteiro. - Zoom e redução. -
+Navegação entre fotografias. - Download do original. - Dimensões e
+tamanho do ficheiro. - Partilha e encaminhamento.
+
+Utilizar o original para o zoom sempre que disponível.
+
+Criar galeria organizada por: - Fotografias. - Vídeos. - Documentos. -
+Áudios. - Outros ficheiros.
+
+Permitir consultar os ficheiros partilhados numa conversa sem percorrer
+todo o histórico.
+
+3.6 — LIVE IMAGE ENHANCER
+
+Criar uma funcionalidade opcional de melhoria de imagens com: - Aumento
+de resolução. - Melhoria de nitidez. - Redução de ruído. - Melhoria de
+iluminação e contraste. - Melhoria de cores. - Redução de desfocagem
+quando tecnicamente possível.
+
+Modos: - Natural. - Alta definição. - Avançado.
+
+Disponibilizar comparação antes/depois. Nunca substituir o original.
+Guardar a imagem melhorada como ficheiro independente e permitir
+descarregar ambas as versões.
+
+Não apresentar detalhes inventados por IA como se fossem informação
+recuperada do original. Priorizar processamento local e gratuito quando
+tecnicamente viável. Não tornar as funcionalidades básicas dependentes
+de pagamentos.
+
+3.7 — VÍDEOS E ÁUDIOS NAS CONVERSAS
+
+Vídeos: - Envio do original. - Pré-visualização. - Reprodução dentro da
+conversa. - Ecrã inteiro. - Volume. - Pausa e continuação. - Barra de
+progresso. - Velocidade de reprodução. - Download do original. -
+Duração, formato e tamanho.
+
+Não converter automaticamente o vídeo enviado. Se não for reproduzível
+no navegador, permitir descarregar o original.
+
+Áudios: - Gravação dentro do chat. - Pré-visualização antes do envio. -
+Cancelamento da gravação. - Reprodução, pausa e continuação. - Barra de
+progresso. - Velocidade de reprodução. - Duração. - Download do áudio
+original. - Visualização de ondas sonoras.
+
+NOTA: Os controlos de reprodução acima aplicam-se aos vídeos e áudios
+enviados nas conversas do LIVE CHAT. Não os confundas com os anúncios de
+vídeo da PARTE 1, que não devem ter botão de pausa nem barra de
+progresso.
+
+3.8 — RESPOSTAS, REAÇÕES E AÇÕES
+
+Permitir responder a uma mensagem com referência à original.
+
+Reações: ❤️ 👍 😂 😮 😢 🔥 👏
+
+Permitir adicionar e remover reações.
+
+Permitir encaminhar mensagens, imagens, vídeos e documentos para outras
+conversas autorizadas.
+
+Permitir editar mensagens próprias e identificar visualmente a edição.
+
+Permitir eliminar para o próprio utilizador ou para todos, de acordo com
+permissões e regras de negócio.
+
+Permitir fixar mensagens e guardar favoritas.
+
+3.9 — GRUPOS E COMUNIDADES
+
+Permitir: - Criar grupos. - Definir nome e fotografia. - Adicionar
+participantes. - Remover participantes conforme permissões. - Nomear
+administradores. - Editar informações. - Fixar mensagens. - Enviar
+ficheiros. - Responder e reagir. - Consultar participantes. - Silenciar
+notificações. - Sair do grupo.
+
+Criar suporte para grupos de: - Turmas de alunos. - Instrutores. -
+Administração. - Comunicados. - Dúvidas e esclarecimentos. - Informações
+sobre aulas.
+
+Os administradores devem controlar as permissões dos grupos.
+
+3.10 — PESQUISA
+
+Criar pesquisa global no LIVE CHAT para: - Utilizadores. - Conversas. -
+Mensagens e palavras. - Fotografias. - Vídeos. - Documentos. - Ficheiros
+pelo nome.
+
+Filtros: - Data. - Tipo de ficheiro. - Participante. - Conversa.
+
+Os resultados devem permitir abrir diretamente a mensagem ou o ficheiro
+correspondente. A pesquisa só pode devolver conteúdo ao qual o
+utilizador tenha acesso.
+
+3.11 — NOTIFICAÇÕES
+
+Notificar quando: - Chega uma mensagem. - Alguém responde. - O
+utilizador é mencionado. - Um ficheiro termina de ser enviado. - Um
+participante entra num grupo. - É publicada uma mensagem importante.
+
+Permitir: - Ativar/desativar notificações. - Silenciar conversas. -
+Configurar notificações por grupo. - Controlar pré-visualizações.
+
+Respeitar as permissões do navegador e do dispositivo.
+
+3.12 — PRIVACIDADE E SEGURANÇA
+
+Implementar: - Conversas acessíveis apenas aos participantes
+autorizados. - Ficheiros privados protegidos. - Regras de acesso no
+backend e no armazenamento. - Validação de tipo, tamanho e conteúdo dos
+ficheiros. - Controlo de sessões. - Bloqueio de utilizadores. - Denúncia
+de mensagens e ficheiros. - Eliminação conforme permissões.
+
+Nenhum utilizador pode abrir ficheiros privados de conversas em que não
+participa. Não depender apenas de esconder elementos na interface:
+validar sempre as permissões no servidor e nas regras de segurança.
+
+3.13 — INTERFACE E NAVEGAÇÃO
+
+Menu: - Conversas. - Contactos. - Grupos. - Arquivos. - Mensagens
+favoritas. - Definições.
+
+Cabeçalho da conversa: - Fotografia. - Nome. - Estado online. -
+Pesquisa. - Ficheiros partilhados. - Menu de opções.
+
+Área de mensagens: - Separação clara entre mensagens enviadas e
+recebidas. - Datas e horas. - Estados de envio, entrega e leitura. -
+Respostas, reações e anexos.
+
+Compositor: - Campo de texto. - Emojis. - Anexos. - Fotografias. -
+Vídeos. - Áudio. - Botão de envio.
+
+O menu de anexos deve ser funcional e visualmente coerente com a
+identidade da plataforma.
+
+3.14 — DESEMPENHO E FIABILIDADE
+
+Implementar: - Paginação do histórico. - Carregamento progressivo. -
+Pré-visualizações leves. - Carregamento de ficheiros sob pedido. -
+Recuperação de ligações interrompidas. - Proteção contra mensagens
+duplicadas. - Prevenção de perda de mensagens. - Sincronização entre
+dispositivos. - Indicadores de carregamento. - Estados vazios. -
+Tratamento de erros.
+
+Garantir utilização consistente em ligações lentas ou instáveis.
+
+3.15 — EXPERIÊNCIA PREMIUM
+
+Adicionar: - Animações discretas de entrada das mensagens. - Transições
+suaves. - Feedback visual ao enviar. - Indicadores de escrita
+animados. - Pré-visualizações elegantes. - Menus contextuais. - Gesto de
+deslizar para responder, quando suportado. - Vibração discreta, quando
+suportada e autorizada. - Modo escuro consistente.
+
+Evitar elementos desnecessários e animações que prejudiquem o
+desempenho.
+
+3.16 — INTEGRAÇÃO
+
+Integrar o LIVE CHAT com: - Autenticação atual. - Perfis existentes. -
+Permissões atuais. - Navegação da plataforma. - Dados atuais dos
+utilizadores. - Sistema de armazenamento já adotado, se adequado.
+
+Não criar contas separadas. Não alterar áreas sem relação com esta
+implementação.
+
+PARTE 4 — TESTES E CRITÉRIOS DE ACEITAÇÃO
+
+Executa testes reais e corrige os problemas encontrados.
+
+4.1 — ANÚNCIOS - Vídeo com duração inferior a 20 segundos. - Vídeo com
+duração exatamente no limite. - Rejeição ou tratamento correto de vídeo
+acima de 20 segundos. - Contador sincronizado com o vídeo. - Ausência de
+botão de pausa e barra de progresso no anúncio. - Encerramento
+automático. - Banner com contador de 8 segundos. - Encerramento
+automático do banner. - Ausência de temporizadores duplicados após
+re-renderização. - Comportamento em telemóveis e computadores.
+
+4.2 — GERAÇÃO DE PERGUNTAS - Geração através da API OpenAI. - Ausência
+de chave exposta no frontend. - Validação da estrutura das perguntas. -
+Tratamento de timeout e erros HTTP. - Tratamento de indisponibilidade e
+limites de utilização. - Nova tentativa sem duplicação. - Escrita
+autorizada em rooms/{roomId}/player_questions. - Bloqueio de escrita não
+autorizada. - Isolamento entre salas.
+
+4.3 — LIVE CHAT - Conversa entre duas contas diferentes. - Mensagens em
+tempo real. - Estados de envio, entrega e leitura. - Edição e
+eliminação. - Reações e respostas. - Envio e download de imagens
+originais. - Envio e download de vídeos e documentos. - Integridade dos
+ficheiros. - Ficheiros grandes dentro dos limites suportados. -
+Recuperação de carregamentos interrompidos. - Grupos e permissões. -
+Notificações. - Pesquisa. - Privacidade e segurança. - Funcionamento em
+dispositivos móveis e computadores.
+
+4.4 — REGISTO DOS RESULTADOS
+
+No final, apresenta: - Diagnóstico da causa de cada erro. - Alterações
+efetuadas. - Ficheiros criados ou modificados. - Variáveis de ambiente
+necessárias. - Configurações de backend e regras de segurança
+necessárias. - Testes executados e respetivos resultados. - Problemas
+que permaneçam por resolver e a razão concreta.
+
+Não declares o trabalho concluído se alguma funcionalidade essencial não
+tiver sido implementada ou testada. Distingue claramente entre
+implementado, testado, parcialmente testado e por implementar.
+
+RESULTADO FINAL ESPERADO
+
+A Escola de Condução Live deve manter a sua estabilidade e receber:
+
+1.  Um sistema de anúncios coerente com a UI existente, com anúncios de
+    vídeo limitados a 20 segundos e contador real, sem pausa nem barra
+    de progresso; e banners limitados a 8 segundos com contador real.
+2.  Uma geração de perguntas da competição ao vivo corrigida, migrada de
+    Gemini para OpenAI através de OPENAI_API_KEY e protegida por
+    permissões Firestore corretas.
+3.  Um LIVE CHAT completo, integrado, seguro, responsivo e funcional,
+    com mensagens em tempo real, ficheiros originais, grupos, pesquisa e
+    notificações.
+
+PRIORIDADES ABSOLUTAS
+
+-   Não quebrar funcionalidades existentes.
+-   Corrigir a causa real dos erros, não mascarar mensagens de erro.
+-   Não expor credenciais.
+-   Não abrir permissões de segurança indiscriminadamente.
+-   Não apresentar interfaces fictícias como funcionalidades concluídas.
+-   Preservar os ficheiros originais.
+-   Garantir que as operações são autorizadas no backend.
+-   Testar e documentar os resultados reais.

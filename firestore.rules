@@ -257,7 +257,9 @@ service cloud.firestore {
         && (!('uid' in data) || (data.uid is string && isValidId(data.uid)))
         && data.questionIndex is int && data.questionIndex >= 0 && data.questionIndex < 50
         && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
-        && data.options is list && data.options.size() == 4 && data.options[0] is string
+        && data.options is list && data.options.size() == 4
+        && data.options[0] is string && data.options[1] is string
+        && data.options[2] is string && data.options[3] is string
         && data.category is string && data.category.size() >= 2 && data.category.size() <= 80
         && data.difficulty is string && data.difficulty.size() >= 2 && data.difficulty.size() <= 40
         && data.signType is string && data.signType.size() >= 1 && data.signType.size() <= 60
@@ -427,7 +429,12 @@ service cloud.firestore {
         && data.aiGenerated is bool
         && data.active is bool
         && data.showInBanner is bool
-        && data.durationSeconds is int && data.durationSeconds >= 5 && data.durationSeconds <= 60
+        && data.durationSeconds is int && data.durationSeconds >= 1
+        && (
+          (data.kind == 'ad_banner' && data.durationSeconds <= 8)
+          || (data.kind == 'ad_video' && data.durationSeconds <= 20)
+          || (data.kind in ['informative', 'link', 'ad_audio'] && data.durationSeconds <= 60)
+        )
         && data.cooldownMinutes is int && data.cooldownMinutes >= 1 && data.cooldownMinutes <= 120
         && data.createdByUid is string && isValidId(data.createdByUid)
         && data.createdByEmail is string && data.createdByEmail.size() >= 3 && data.createdByEmail.size() <= 200
@@ -445,7 +452,9 @@ service cloud.firestore {
           'category', 'difficulty', 'signType', 'active', 'createdBy', 'createdAt'
         ])
         && data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 500
-        && data.options is list && data.options.size() == 4 && data.options[0] is string
+        && data.options is list && data.options.size() == 4
+        && data.options[0] is string && data.options[1] is string
+        && data.options[2] is string && data.options[3] is string
         && data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3
         && data.explanation is string && data.explanation.size() >= 5 && data.explanation.size() <= 1500
         && data.legalReference is string && data.legalReference.size() >= 2 && data.legalReference.size() <= 300
@@ -488,6 +497,257 @@ service cloud.firestore {
         && data.addedByEmail is string && data.addedByEmail.size() >= 3 && data.addedByEmail.size() <= 200
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // LIVE CHAT Security Helpers & Validators
+    // =========================================================================
+    function isChatMember(chatId) {
+      return isSignedIn() && isValidId(chatId)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
+    }
+
+    function isChatAdmin(chatId) {
+      return isSignedIn() && isValidId(chatId)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && (
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.adminIds
+          || get(/databases/$(database)/documents/chats/$(chatId)).data.createdBy == request.auth.uid
+        );
+    }
+
+    function isBlockedByUser(targetUid, actorUid) {
+      return exists(/databases/$(database)/documents/chat_presence/$(targetUid))
+        && ('blockedUids' in get(/databases/$(database)/documents/chat_presence/$(targetUid)).data)
+        && actorUid in get(/databases/$(database)/documents/chat_presence/$(targetUid)).data.blockedUids;
+    }
+
+    function isDirectChatBlocked(chatData, actorUid) {
+      return chatData.type == 'direct'
+        && chatData.memberIds.size() == 2
+        && (
+          isBlockedByUser(chatData.memberIds[0], actorUid)
+          || isBlockedByUser(chatData.memberIds[1], actorUid)
+        );
+    }
+
+    function isValidChatRoom(data, chatId) {
+      return data.keys().hasAll([
+          'chatId', 'type', 'memberIds', 'adminIds', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'chatId', 'type', 'directPairKey', 'title', 'description', 'photoURL',
+          'groupCategory', 'memberIds', 'adminIds', 'createdBy',
+          'pinnedMessageId', 'pinnedPreviewText',
+          'lastMessageId', 'lastMessagePreview', 'lastMessageType',
+          'lastMessageSenderUid', 'lastMessageSenderName', 'lastMessageAtMs',
+          'lastMessageAt', 'createdAt', 'updatedAt'
+        ])
+        && data.chatId is string && data.chatId == chatId && isValidId(data.chatId)
+        && data.type in ['direct', 'group']
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 150
+        && data.adminIds is list && data.adminIds.size() >= 0 && data.adminIds.size() <= 150
+        && data.createdBy is string && isValidId(data.createdBy)
+        && (!('directPairKey' in data) || (data.directPairKey is string && data.directPairKey.size() <= 200))
+        && (!('title' in data) || (data.title is string && data.title.size() <= 80))
+        && (!('description' in data) || (data.description is string && data.description.size() <= 240))
+        && (!('photoURL' in data) || isValidAvatarUrl(data.photoURL))
+        && (!('groupCategory' in data) || data.groupCategory in ['turma', 'instrutores', 'administracao', 'comunicados', 'duvidas', 'aulas'])
+        && (!('pinnedMessageId' in data) || (data.pinnedMessageId is string && data.pinnedMessageId.size() <= 128))
+        && (!('pinnedPreviewText' in data) || (data.pinnedPreviewText is string && data.pinnedPreviewText.size() <= 160))
+        && (!('lastMessageId' in data) || (data.lastMessageId is string && data.lastMessageId.size() <= 128))
+        && (!('lastMessagePreview' in data) || (data.lastMessagePreview is string && data.lastMessagePreview.size() <= 160))
+        && (!('lastMessageType' in data) || data.lastMessageType in ['text', 'image', 'video', 'audio', 'file'])
+        && (!('lastMessageSenderUid' in data) || (data.lastMessageSenderUid is string && data.lastMessageSenderUid.size() <= 128))
+        && (!('lastMessageSenderName' in data) || (data.lastMessageSenderName is string && data.lastMessageSenderName.size() <= 60))
+        && (!('lastMessageAtMs' in data) || (data.lastMessageAtMs is int && data.lastMessageAtMs >= 0))
+        && (!('lastMessageAt' in data) || data.lastMessageAt is timestamp)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMember(data, chatId, uid) {
+      return data.keys().hasAll([
+          'uid', 'chatId', 'role', 'muted', 'pinned', 'unreadCount',
+          'lastReadAtMs', 'lastDeliveredAtMs', 'typingAtMs', 'joinedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'chatId', 'role', 'muted', 'pinned', 'unreadCount',
+          'lastReadAtMs', 'lastDeliveredAtMs', 'typingAtMs', 'joinedAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.chatId is string && data.chatId == chatId && isValidId(data.chatId)
+        && data.role in ['owner', 'admin', 'member']
+        && data.muted is bool
+        && data.pinned is bool
+        && data.unreadCount is int && data.unreadCount >= 0 && data.unreadCount <= 100000
+        && data.lastReadAtMs is int && data.lastReadAtMs >= 0
+        && data.lastDeliveredAtMs is int && data.lastDeliveredAtMs >= 0
+        && data.typingAtMs is int && data.typingAtMs >= 0
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data, chatId, messageId) {
+      return data.keys().hasAll([
+          'messageId', 'chatId', 'senderUid', 'senderName', 'type', 'text',
+          'deletedForAll', 'deletedForUids', 'pinned', 'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'messageId', 'chatId', 'senderUid', 'senderName', 'senderPhotoURL',
+          'type', 'text', 'replyTo', 'forwardedFrom', 'reactions', 'attachment',
+          'deliveredToUids', 'readByUids', 'editedAtMs',
+          'deletedForAll', 'deletedForUids', 'pinned', 'clientNonce',
+          'createdAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.messageId is string && data.messageId == messageId && isValidId(data.messageId)
+        && data.chatId is string && data.chatId == chatId && isValidId(data.chatId)
+        && data.senderUid is string && isValidId(data.senderUid)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60
+        && (!('senderPhotoURL' in data) || isValidAvatarUrl(data.senderPhotoURL))
+        && data.type in ['text', 'image', 'video', 'audio', 'file']
+        && data.text is string && data.text.size() <= 4000
+        && (!('replyTo' in data) || data.replyTo is map)
+        && (!('forwardedFrom' in data) || data.forwardedFrom is map)
+        && (!('reactions' in data) || data.reactions is map)
+        && (!('attachment' in data) || (
+          data.attachment is map
+          && data.attachment.fileId is string && isValidId(data.attachment.fileId)
+          && data.attachment.sizeBytes is int && data.attachment.sizeBytes >= 1 && data.attachment.sizeBytes <= 20971520
+        ))
+        && (!('deliveredToUids' in data) || (data.deliveredToUids is list && data.deliveredToUids.size() <= 200))
+        && (!('readByUids' in data) || (data.readByUids is list && data.readByUids.size() <= 200))
+        && (!('editedAtMs' in data) || (data.editedAtMs is int && data.editedAtMs >= 0))
+        && data.deletedForAll is bool
+        && data.deletedForUids is list && data.deletedForUids.size() <= 200
+        && data.pinned is bool
+        && (!('clientNonce' in data) || (data.clientNonce is string && data.clientNonce.size() <= 80))
+        && data.createdAtMs is int && data.createdAtMs >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatFileManifest(data, chatId, fileId) {
+      return data.keys().hasAll([
+          'fileId', 'chatId', 'senderUid', 'fileName', 'mimeType', 'extension',
+          'sizeBytes', 'chunkCount', 'sha256', 'completed', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'fileId', 'chatId', 'senderUid', 'fileName', 'mimeType', 'extension',
+          'sizeBytes', 'chunkCount', 'sha256', 'completed', 'createdAt'
+        ])
+        && data.fileId is string && data.fileId == fileId && isValidId(data.fileId)
+        && data.chatId is string && data.chatId == chatId && isValidId(data.chatId)
+        && data.senderUid is string && isValidId(data.senderUid)
+        && data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 180
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
+        && data.extension is string && data.extension.size() >= 1 && data.extension.size() <= 16
+        && data.sizeBytes is int && data.sizeBytes >= 1 && data.sizeBytes <= 20971520
+        && data.chunkCount is int && data.chunkCount >= 1 && data.chunkCount <= 60
+        && data.sha256 is string && data.sha256.size() >= 8 && data.sha256.size() <= 128
+        && data.completed is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatFileChunk(data, chatId, chunkId) {
+      return data.keys().hasAll(['chunkId', 'fileId', 'chatId', 'senderUid', 'chunkIndex', 'dataBase64', 'createdAt'])
+        && data.keys().hasOnly(['chunkId', 'fileId', 'chatId', 'senderUid', 'chunkIndex', 'dataBase64', 'createdAt'])
+        && data.chunkId is string && data.chunkId == chunkId && isValidLongId(data.chunkId)
+        && data.fileId is string && isValidId(data.fileId)
+        && data.chatId is string && data.chatId == chatId && isValidId(data.chatId)
+        && data.senderUid is string && isValidId(data.senderUid)
+        && data.chunkIndex is int && data.chunkIndex >= 0 && data.chunkIndex < 60
+        && data.dataBase64 is string && data.dataBase64.size() <= 750000
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatPresence(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'online', 'lastSeenAtMs', 'hideOnline', 'hideLastSeen',
+          'blockedUids', 'notificationsEnabled', 'groupNotificationsEnabled',
+          'showPreviews', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'online', 'lastSeenAtMs', 'hideOnline', 'hideLastSeen',
+          'blockedUids', 'notificationsEnabled', 'groupNotificationsEnabled',
+          'showPreviews', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.online is bool
+        && data.lastSeenAtMs is int && data.lastSeenAtMs >= 0
+        && data.hideOnline is bool
+        && data.hideLastSeen is bool
+        && data.blockedUids is list && data.blockedUids.size() <= 500
+        && data.notificationsEnabled is bool
+        && data.groupNotificationsEnabled is bool
+        && data.showPreviews is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatFavorite(data, uid, favId) {
+      return data.keys().hasAll([
+          'favoriteId', 'uid', 'chatId', 'chatTitle', 'messageId',
+          'senderName', 'type', 'previewText', 'createdAtMs', 'savedAt'
+        ])
+        && data.keys().hasOnly([
+          'favoriteId', 'uid', 'chatId', 'chatTitle', 'messageId',
+          'senderName', 'type', 'previewText', 'attachmentName', 'createdAtMs', 'savedAt'
+        ])
+        && data.favoriteId is string && data.favoriteId == favId && isValidLongId(data.favoriteId)
+        && data.uid is string && data.uid == uid && isValidId(data.uid)
+        && data.chatId is string && isValidId(data.chatId)
+        && data.chatTitle is string && data.chatTitle.size() >= 1 && data.chatTitle.size() <= 100
+        && data.messageId is string && isValidId(data.messageId)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60
+        && data.type in ['text', 'image', 'video', 'audio', 'file']
+        && data.previewText is string && data.previewText.size() >= 1 && data.previewText.size() <= 260
+        && (!('attachmentName' in data) || (data.attachmentName is string && data.attachmentName.size() <= 180))
+        && data.createdAtMs is int && data.createdAtMs >= 0
+        && data.savedAt is timestamp;
+    }
+
+    function isValidChatNotification(data, notifId) {
+      return data.keys().hasAll([
+          'notifId', 'recipientUid', 'chatId', 'type', 'senderUid',
+          'senderName', 'title', 'body', 'read', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'notifId', 'recipientUid', 'chatId', 'messageId', 'type', 'senderUid',
+          'senderName', 'title', 'body', 'read', 'createdAt'
+        ])
+        && data.notifId is string && data.notifId == notifId && isValidId(data.notifId)
+        && data.recipientUid is string && isValidId(data.recipientUid)
+        && data.chatId is string && isValidId(data.chatId)
+        && (!('messageId' in data) || (data.messageId is string && isValidId(data.messageId)))
+        && data.type in ['message', 'reply', 'mention', 'file', 'group_join', 'pinned']
+        && data.senderUid is string && isValidId(data.senderUid)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && data.body is string && data.body.size() >= 1 && data.body.size() <= 260
+        && data.read is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatReport(data, reportId) {
+      return data.keys().hasAll([
+          'reportId', 'reporterUid', 'chatId', 'messageId', 'reportedUid',
+          'reason', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'reportId', 'reporterUid', 'chatId', 'messageId', 'reportedUid',
+          'fileId', 'reason', 'details', 'status', 'createdAt'
+        ])
+        && data.reportId is string && data.reportId == reportId && isValidId(data.reportId)
+        && data.reporterUid is string && data.reporterUid == request.auth.uid && isValidId(data.reporterUid)
+        && data.chatId is string && isValidId(data.chatId)
+        && data.messageId is string && isValidId(data.messageId)
+        && data.reportedUid is string && isValidId(data.reportedUid)
+        && (!('fileId' in data) || (data.fileId is string && isValidId(data.fileId)))
+        && data.reason is string && data.reason.size() >= 2 && data.reason.size() <= 120
+        && (!('details' in data) || (data.details is string && data.details.size() <= 500))
+        && data.status in ['pending', 'reviewed']
+        && data.createdAt is timestamp;
     }
 
     // =========================================================================
@@ -593,6 +853,17 @@ service cloud.firestore {
             'totpEnabled', 'totpSealedSecret', 'updatedAt'
           ]);
         allow delete: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+      }
+
+      match /chat_favorites/{favId} {
+        allow get: if isSignedIn() && isValidId(uid) && isValidLongId(favId) && isOwner(uid);
+        allow list: if isSignedIn() && isValidId(uid) && isOwner(uid);
+        allow create: if isSignedIn() && isValidId(uid) && isValidLongId(favId)
+          && isOwner(uid)
+          && isValidChatFavorite(incoming(), uid, favId)
+          && incoming().savedAt == request.time;
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(uid) && isValidLongId(favId) && (isOwner(uid) || isAdmin());
       }
     }
 
@@ -1019,6 +1290,196 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && !existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
         && incoming().diff(existing()).affectedKeys().hasOnly(['deletedCount', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // LIVE CHAT Collections (Participant-Scoped Fortress Rules)
+    // =========================================================================
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && isValidId(chatId)
+        && (request.auth.uid in existing().memberIds || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberIds);
+      allow create: if isSignedIn() && isValidId(chatId)
+        && isUserNotDisabled(request.auth.uid)
+        && isValidChatRoom(incoming(), chatId)
+        && incoming().createdBy == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(chatId)
+        && request.auth.uid in existing().memberIds
+        && isValidChatRoom(incoming(), chatId)
+        && incoming().chatId == existing().chatId
+        && incoming().type == existing().type
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          request.auth.uid in existing().adminIds
+          || isAdmin()
+          || (
+            !isDirectChatBlocked(existing(), request.auth.uid)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'lastMessageId', 'lastMessagePreview', 'lastMessageType',
+              'lastMessageSenderUid', 'lastMessageSenderName',
+              'lastMessageAtMs', 'lastMessageAt',
+              'pinnedMessageId', 'pinnedPreviewText', 'updatedAt'
+            ])
+          )
+          || (
+            existing().type == 'group'
+            && !(request.auth.uid in incoming().memberIds)
+            && !(request.auth.uid in incoming().adminIds)
+            && incoming().memberIds.size() == existing().memberIds.size() - 1
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'adminIds', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(chatId) && isAdmin();
+
+      match /members/{uid} {
+        allow get: if isSignedIn() && isValidId(uid) && isChatMember(chatId);
+        allow list: if isSignedIn() && isChatMember(chatId);
+        allow create: if isSignedIn() && isValidId(uid)
+          && isValidChatMember(incoming(), chatId, uid)
+          && incoming().joinedAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            isOwner(uid)
+            || isChatAdmin(chatId)
+            || get(/databases/$(database)/documents/chats/$(chatId)).data.createdBy == request.auth.uid
+          );
+        allow update: if isSignedIn() && isValidId(uid)
+          && isChatMember(chatId)
+          && isValidChatMember(incoming(), chatId, uid)
+          && incoming().uid == existing().uid
+          && incoming().chatId == existing().chatId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().updatedAt == request.time
+          && (
+            isChatAdmin(chatId)
+            || (
+              isOwner(uid)
+              && incoming().role == existing().role
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'muted', 'pinned', 'unreadCount', 'lastReadAtMs',
+                'lastDeliveredAtMs', 'typingAtMs', 'updatedAt'
+              ])
+            )
+          );
+        allow delete: if isSignedIn() && isValidId(uid)
+          && (isOwner(uid) || isChatAdmin(chatId) || isAdmin());
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(messageId) && isChatMember(chatId);
+        allow list: if isSignedIn() && isChatMember(chatId);
+        allow create: if isSignedIn() && isValidId(messageId)
+          && isChatMember(chatId)
+          && !isDirectChatBlocked(get(/databases/$(database)/documents/chats/$(chatId)).data, request.auth.uid)
+          && isValidChatMessage(incoming(), chatId, messageId)
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isSignedIn() && isValidId(messageId)
+          && isChatMember(chatId)
+          && isValidChatMessage(incoming(), chatId, messageId)
+          && incoming().messageId == existing().messageId
+          && incoming().chatId == existing().chatId
+          && incoming().senderUid == existing().senderUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (
+              existing().senderUid == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'text', 'editedAtMs', 'deletedForAll', 'deletedForUids', 'pinned', 'updatedAt'
+              ])
+            )
+            || (
+              isChatAdmin(chatId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'text', 'deletedForAll', 'deletedForUids', 'pinned', 'updatedAt'
+              ])
+            )
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'reactions', 'deliveredToUids', 'readByUids', 'deletedForUids', 'pinned', 'updatedAt'
+            ])
+          );
+        allow delete: if isSignedIn() && isValidId(messageId) && isAdmin();
+      }
+
+      match /file_manifests/{fileId} {
+        allow get: if isSignedIn() && isValidId(fileId) && isChatMember(chatId);
+        allow list: if isSignedIn() && isChatMember(chatId);
+        allow create: if isSignedIn() && isValidId(fileId)
+          && isChatMember(chatId)
+          && isValidChatFileManifest(incoming(), chatId, fileId)
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if isSignedIn() && isValidId(fileId)
+          && isChatMember(chatId)
+          && existing().senderUid == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['completed']);
+        allow delete: if isSignedIn() && isValidId(fileId)
+          && (existing().senderUid == request.auth.uid || isAdmin());
+      }
+
+      match /file_chunks/{chunkId} {
+        allow get: if isSignedIn() && isValidLongId(chunkId) && isChatMember(chatId);
+        allow list: if isSignedIn() && isChatMember(chatId);
+        allow create: if isSignedIn() && isValidLongId(chunkId)
+          && isChatMember(chatId)
+          && isValidChatFileChunk(incoming(), chatId, chunkId)
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidLongId(chunkId)
+          && (existing().senderUid == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /chat_presence/{uid} {
+      allow get: if isSignedIn() && isValidId(uid);
+      allow list: if isSignedIn() && resource.data.uid is string;
+      allow create: if isSignedIn() && isValidId(uid)
+        && isOwner(uid)
+        && isValidChatPresence(incoming(), uid)
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(uid)
+        && isOwner(uid)
+        && isValidChatPresence(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time;
+      allow delete: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+    }
+
+    match /chat_notifications/{notifId} {
+      allow get: if isSignedIn() && isValidId(notifId)
+        && (existing().recipientUid == request.auth.uid || existing().senderUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(notifId)
+        && isValidChatNotification(incoming(), notifId)
+        && incoming().senderUid == request.auth.uid
+        && isChatMember(incoming().chatId)
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(notifId)
+        && existing().recipientUid == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && isValidId(notifId)
+        && (existing().recipientUid == request.auth.uid || isAdmin());
+    }
+
+    match /chat_reports/{reportId} {
+      allow get: if isSignedIn() && isValidId(reportId)
+        && (existing().reporterUid == request.auth.uid || canViewReservedScreens());
+      allow list: if isSignedIn()
+        && (resource.data.reporterUid == request.auth.uid || canViewReservedScreens());
+      allow create: if isSignedIn() && isValidId(reportId)
+        && isValidChatReport(incoming(), reportId)
+        && isChatMember(incoming().chatId)
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(reportId) && isAdmin();
       allow delete: if false;
     }
   }
